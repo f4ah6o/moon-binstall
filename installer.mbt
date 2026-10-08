@@ -1,14 +1,14 @@
 ///|
 pub struct Options {
-  pub package : Package
-  pub directory : String?
-  pub dry_run : Bool
-  pub force : Bool
+  pkg : Package
+  directory : String?
+  dry_run : Bool
+  force : Bool
 }
 
 ///|
 pub fn usage() -> String {
-  #|moon-binstall — install checksum-verified MoonBit binaries from GitHub Releases
+  let msg = #|moon-binstall — install checksum-verified MoonBit binaries from GitHub Releases
   #|
   #|Usage:
   #|  moon-binstall install <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
@@ -20,6 +20,7 @@ pub fn usage() -> String {
   #|
   #|Requires: curl, macOS or Linux; SHA-256 digest in GitHub release metadata.
   #|hotpath installs the optional hotpath-report example binary, not the library.
+  msg
 }
 
 ///|
@@ -52,7 +53,7 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
     idx = idx + 1
   }
   guard coordinate != "" else { fail("missing repository coordinate") }
-  { package: parse_package(coordinate), directory, dry_run, force }
+  { pkg: parse_package(coordinate), directory, dry_run, force }
 }
 
 ///|
@@ -65,8 +66,8 @@ async fn require_platform() -> String {
 }
 
 ///|
-fn target_directory(override : String?) -> String raise {
-  match override {
+fn target_directory(dir_override : String?) -> String raise {
+  match dir_override {
     Some(dir) => {
       guard dir != "" && dir.has_prefix("/") else {
         fail("--bin-dir must be an absolute path")
@@ -106,7 +107,7 @@ async fn download(url : String, path : String) -> Unit {
 }
 
 ///|
-fn verify_digest(path : String, expected : String) -> Unit {
+async fn verify_digest(path : String, expected : String) -> Unit {
   let bytes = @fs.read_file(path).binary()
   let actual = "sha256:" + @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
   guard actual == expected else {
@@ -117,8 +118,8 @@ fn verify_digest(path : String, expected : String) -> Unit {
 ///|
 pub async fn install(config : Options) -> Unit {
   let target = require_platform()
-  let package = config.package
-  let api = release_url(package)
+  let pkg = config.pkg
+  let api = release_url(pkg)
   let (code, body) = @process.collect_stdout("curl", [
     "--fail", "--silent", "--show-error", "--location",
     "--proto", "=https", "--proto-redir", "=https",
@@ -129,10 +130,10 @@ pub async fn install(config : Options) -> Unit {
   guard code == 0 else {
     fail("GitHub release lookup failed (curl exit \{code}): \{api}")
   }
-  let release = resolve_release(body.text(), package, target)
+  let release = resolve_release(body.text(), pkg, target)
   let bin_dir = target_directory(config.directory)
-  let destination = bin_dir + "/" + package.binary
-  println("Resolved \{package.owner}/\{package.repo}@\{release.tag}: \{release.name}")
+  let destination = bin_dir + "/" + pkg.binary
+  println("Resolved \{pkg.owner}/\{pkg.repo}@\{release.tag}: \{release.name}")
   if config.dry_run {
     println("Would install \{release.url} -> \{destination}")
     return
@@ -147,23 +148,15 @@ pub async fn install(config : Options) -> Unit {
       fail("refusing to replace a non-regular file: \{destination}")
     }
   }
-  let staging = bin_dir + "/.\{package.binary}.moon-binstall.part"
+  let staging = bin_dir + "/.\{pkg.binary}.moon-binstall.part"
   guard !@fs.exists(staging) else {
     fail("staging file exists (concurrent or interrupted install): \{staging}")
   }
-  try {
-    download(release.url, staging)
-    verify_digest(staging, release.digest)
-    @fs.chmod(staging, 0o755)
-    @fs.rename(staging, destination, replace=config.force)
-  } catch {
-    err => {
-      if @fs.exists(staging) {
-        @fs.remove(staging) catch { _ => () }
-      }
-      raise err
-    }
-  }
+  defer (@fs.remove(staging) catch { _ => () })
+  download(release.url, staging)
+  verify_digest(staging, release.digest)
+  @fs.chmod(staging, 0o755)
+  @fs.rename(staging, destination, replace=config.force)
   println("Installed \{destination}")
 }
 

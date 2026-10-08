@@ -38,7 +38,7 @@ test "release digest and repository validation" {
 ///|
 test "parse options" {
   let config = parse_options(["install", "dsh", "--bin-dir", "/tmp/bin", "--dry-run"])
-  assert_eq(config.package.binary, "dsh")
+  assert_eq(config.pkg.binary, "dsh")
   assert_eq(config.directory, Some("/tmp/bin"))
   assert_eq(config.dry_run, true)
   assert_eq(config.force, false)

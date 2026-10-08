@@ -2,11 +2,11 @@
 /// Only explicit GitHub coordinates and the three owned aliases are accepted.
 /// No shell invocation is constructed from these values.
 pub struct Package {
-  pub owner : String
-  pub repo : String
-  pub binary : String
-  pub version : String?
-} derive(Eq, Show)
+  owner : String
+  repo : String
+  binary : String
+  version : String?
+}
 
 ///|
 pub fn parse_package(input : String) -> Package raise {
@@ -40,7 +40,7 @@ pub fn parse_package(input : String) -> Package raise {
       // as a generic CLI named after the repo without the .mbt suffix.
       let name = path[1].to_owned()
       let binary = if name.has_suffix(".mbt") {
-        name.substring(end=name.length() - 4)
+        name[:name.length() - 4].to_string()
       } else {
         name
       }
@@ -102,11 +102,11 @@ pub fn expected_asset(pkg : Package, target : String) -> String {
 
 ///|
 pub struct ReleaseAsset {
-  pub url : String
-  pub digest : String
-  pub name : String
-  pub tag : String
-} derive(Eq, Show)
+  url : String
+  digest : String
+  name : String
+  tag : String
+}
 
 ///|
 /// A release without a GitHub SHA-256 digest is not safe to install.
@@ -135,7 +135,7 @@ pub fn resolve_release(
       } => {
         if name != expected { continue }
         let origin = "https://github.com/\{pkg.owner}/\{pkg.repo}/releases/download/"
-        guard url.has_prefix(origin) && url.ends_with("/" + expected) else {
+        guard url.has_prefix(origin) && url.has_suffix("/" + expected) else {
           fail("release asset URL is not in the requested repository")
         }
         guard digest.has_prefix("sha256:") && digest.length() == 71 else {
