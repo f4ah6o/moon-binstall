@@ -36,7 +36,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/moon-extra-bin"
           install -m 755 "$binary" "$RUNNER_TEMP/moon-extra-bin/moon-binstall"
           export PATH="$RUNNER_TEMP/moon-extra-bin:$PATH"
-          test "$(moon binstall --version)" = "moon-binstall 0.1.0"
+          expected="$(python3 scripts/release_version.py read --kind moon-binstall)"
+          test "$(moon binstall --version)" = "moon-binstall ${expected#v}"
           moon binstall --help | grep -q 'Aliases: turtles, hotpath, dsh'
           set +e
           moon binstall turtles --nonexistent-option > "$RUNNER_TEMP/invalid-option.log" 2>&1
