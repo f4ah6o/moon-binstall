@@ -1,4 +1,5 @@
 import {
+  "moonbitlang/async",
   "f4ah6o/moon-binstall" @app,
   "moonbitlang/core/env",
   "moonbitlang/x/sys",
