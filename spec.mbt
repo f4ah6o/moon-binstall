@@ -40,7 +40,7 @@ pub fn parse_package(input : String) -> Package raise {
       // as a generic CLI named after the repo without the .mbt suffix.
       let name = path[1].to_owned()
       let binary = if name.has_suffix(".mbt") {
-        name[:name.length() - 4].to_string()
+        name[:name.length() - 4].to_owned()
       } else {
         name
       }
