@@ -47,6 +47,13 @@ jobs:
           cp -- "$binaries" "release/moon-binstall-${{ matrix.platform }}"
           chmod 755 "release/moon-binstall-${{ matrix.platform }}"
           "./release/moon-binstall-${{ matrix.platform }}" --version
+      - name: Verify moon external subcommand
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/moon-extra-bin"
+          install -m 755 "release/moon-binstall-${{ matrix.platform }}" "$RUNNER_TEMP/moon-extra-bin/moon-binstall"
+          PATH="$RUNNER_TEMP/moon-extra-bin:$PATH" moon binstall --version | grep -x 'moon-binstall 0.1.0'
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.platform }}
