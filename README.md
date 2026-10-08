@@ -75,6 +75,34 @@ Supported aliases:
 library in your project, use `moon add f4ah6o/hotpath` instead. The
 `hotpath-report` binary is the repository's terminal-report example.
 
+## Release from the `latest` tag
+
+To release a new patch version, tag the current `main` commit as `latest`
+and push the tag:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git tag -f latest HEAD
+git push --force origin refs/tags/latest
+```
+
+The release workflow will update `moon.mod` and the CLI version (e.g.
+`0.1.0 → 0.1.1`), atomically push the version-bump commit and immutable
+`v0.1.1` tag, build/check the three native targets, and create Release
+`v0.1.1` with their binaries. The `latest` tag is only a trigger and is
+not itself a published version.
+
+It fails closed if `latest` does not refer to the current `main` commit,
+or the version tag already exists. Rerunning the same workflow after a
+successful bump reuses the existing version commit. GitHub Actions must
+have permission to push to `main` and create tags; any branch protection
+or ruleset restrictions remain effective.
+
+Manually pushed `vX.Y.Z` tags also build and release, after checking the
+tag matches `moon.mod`. No release tag is pushed automatically until
+someone explicitly pushes `latest`.
+
 ## Release contract
 
 The repository must publish a **raw executable** named
