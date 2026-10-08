@@ -26,8 +26,6 @@ def changes_for(root, kind):
     elif kind == "moon-binstall":
         extra = {
             "installer.mbt": (f'println("moon-binstall {old}")', f'println("moon-binstall {new}")'),
-            ".github/workflows/ci.yml": (f'moon-binstall {old}', f'moon-binstall {new}'),
-            ".github/workflows/publish-native.yml": (f'moon-binstall {old}', f'moon-binstall {new}'),
         }
     else:
         extra = {}
