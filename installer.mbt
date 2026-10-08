@@ -14,6 +14,8 @@ pub fn usage() -> String {
   #|  moon-binstall install <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
   #|  moon-binstall <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
   #|  moon-binstall --help
+  #|  moon binstall <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
+  #|  moon binstall --help
   #|
   #|Aliases: turtles, hotpath, dsh
   #|Environment: MOON_BINSTALL_DIR (default $HOME/.local/bin)
