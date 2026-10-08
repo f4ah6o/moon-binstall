@@ -48,7 +48,9 @@ library in your project, use `moon add f4ah6o/hotpath` instead. The
 
 The repository must publish a **raw executable** named
 `<binary>-<platform>`, where platform is
-`linux-x86_64`, `linux-aarch64`, `darwin-x86_64` or `darwin-aarch64`.
+`linux-x86_64`, `linux-aarch64` or `darwin-aarch64` in the provided CI workflow.
+`darwin-x86_64` is recognized by the resolver, but the current MoonBit setup
+workflow cannot build for Intel macOS; no matching release binary is published.
 Releases must include GitHub's `sha256:<64 hex digits>` digest metadata
 for each asset. Missing assets or digests are errors — no unverified
 installation or silent source-build fallback.
