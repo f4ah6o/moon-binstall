@@ -27,3 +27,20 @@ jobs:
         run: moon build --target native --release
       - name: CLI smoke
         run: moon run cmd/main --target native -- --help
+      - name: Moon external subcommand delegation
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary=$(find _build/native/release/build -type f -name 'main.exe' -print)
+          test -n "$binary"
+          mkdir -p "$RUNNER_TEMP/moon-extra-bin"
+          install -m 755 "$binary" "$RUNNER_TEMP/moon-extra-bin/moon-binstall"
+          export PATH="$RUNNER_TEMP/moon-extra-bin:$PATH"
+          test "$(moon binstall --version)" = "moon-binstall 0.1.0"
+          moon binstall --help | grep -q 'Aliases: turtles, hotpath, dsh'
+          set +e
+          moon binstall turtles --nonexistent-option > "$RUNNER_TEMP/invalid-option.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -q 'unrecognized or duplicate argument: --nonexistent-option' "$RUNNER_TEMP/invalid-option.log"
