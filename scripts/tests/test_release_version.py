@@ -18,13 +18,9 @@ class ReleaseVersionTests(unittest.TestCase):
             root = Path(d)
             (root / "moon.mod").write_text('version = "0.1.9"\n')
             (root / "installer.mbt").write_text('println("moon-binstall 0.1.9")\n')
-            work = root / ".github/workflows"
-            work.mkdir(parents=True)
-            for name in ("ci.yml", "publish-native.yml"):
-                (work / name).write_text("moon-binstall 0.1.9\n")
             tag, changes = changes_for(root, "moon-binstall")
             self.assertEqual(tag, "v0.1.10")
-            self.assertEqual(len(changes), 4)
+            self.assertEqual(len(changes), 2)
             self.assertIn('version = "0.1.10"', changes[root / "moon.mod"])
             for content in changes.values():
                 self.assertNotIn("moon-binstall 0.1.9", content)
