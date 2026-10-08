@@ -1,0 +1,29 @@
+name: MoonBit native CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hustcer/setup-moonbit@v1
+      - name: Resolve dependencies
+        run: |
+          moon update
+          moon install
+      - name: Check
+        run: moon check --target native --deny-warn
+      - name: Tests
+        run: moon test --target native
+      - name: Build native CLI
+        run: moon build --target native --release
+      - name: CLI smoke
+        run: moon run cmd/main --target native -- --help

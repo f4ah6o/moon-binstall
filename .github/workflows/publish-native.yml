@@ -1,0 +1,75 @@
+name: Publish moon-binstall binaries
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/publish-native.yml"
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux-aarch64
+          - os: macos-15
+            platform: darwin-aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hustcer/setup-moonbit@v1
+      - name: Resolve dependencies
+        run: |
+          moon update
+          moon install
+      - name: Build
+        run: moon build cmd/main --target native --release
+      - name: Prepare raw executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          binaries=$(find _build/native/release/build -type f -name 'main.exe' -print)
+          count=$(printf '%s\n' "$binaries" | grep -c . || true)
+          if [ "$count" -ne 1 ]; then
+            printf 'Expected exactly one main.exe, got %s\n' "$count" >&2
+            exit 1
+          fi
+          mkdir -p release
+          cp -- "$binaries" "release/moon-binstall-${{ matrix.platform }}"
+          chmod 755 "release/moon-binstall-${{ matrix.platform }}"
+          "./release/moon-binstall-${{ matrix.platform }}" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: release
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(find release -type f | wc -l)" -eq 3
+          gh release create "${GITHUB_REF_NAME}" release/* --verify-tag --generate-notes --title "${GITHUB_REF_NAME}"
