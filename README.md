@@ -20,6 +20,37 @@ moon run cmd/main --target native -- --help
 The generated executable is `_build/native/release/build/cmd/main/main.exe`
 (the exact output path can vary with toolchain versions).
 
+## Use as a `moon` subcommand
+
+The official Moon CLI dispatches unknown subcommands to executables named
+`moon-<subcommand>` on `PATH`. Install the `moon-binstall` binary under that
+**exact filename** to enable `moon binstall` (no Moon CLI patch or shell alias).
+
+Until the first binary release is published, build and bootstrap it from source:
+
+```sh
+moon update
+moon install
+moon build cmd/main --target native --release
+
+mkdir -p "${MOON_HOME:-$HOME/.moon}/bin"
+binary=$(find _build/native/release/build -type f -name main.exe -print)
+test -n "$binary"
+install -m 755 "$binary" "${MOON_HOME:-$HOME/.moon}/bin/moon-binstall"
+export PATH="${MOON_HOME:-$HOME/.moon}/bin:$PATH"
+
+moon binstall --version
+moon binstall turtles
+moon binstall hotpath
+moon binstall dsh
+moon binstall turtles@v0.4.0
+```
+
+`moon binstall` forwards arguments unchanged to `moon-binstall`. The target
+repositories must first publish matching verified GitHub Releases; until then
+the installer exits with an explicit missing-release error. `moon --help`
+does not necessarily enumerate externally discovered commands.
+
 ## Usage
 
 ```sh
