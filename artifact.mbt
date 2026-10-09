@@ -172,10 +172,26 @@ pub fn artifact_url_asset_name(
 
 ///|
 pub fn infer_archive_format(name : String) -> String {
-  if name.has_suffix(".tar.gz") {
+  if name.has_suffix(".tar.bz2") {
+    "tar.bz2"
+  } else if name.has_suffix(".tbz2") {
+    "tbz2"
+  } else if name.has_suffix(".tar.zstd") {
+    "tar.zstd"
+  } else if name.has_suffix(".tar.zst") {
+    "tzstd"
+  } else if name.has_suffix(".tzstd") {
+    "tzstd"
+  } else if name.has_suffix(".tar.xz") {
+    "tar.xz"
+  } else if name.has_suffix(".txz") {
+    "txz"
+  } else if name.has_suffix(".tar.gz") {
     "tar.gz"
   } else if name.has_suffix(".tgz") {
     "tgz"
+  } else if name.has_suffix(".tar") {
+    "tar"
   } else if name.has_suffix(".zip") {
     "zip"
   } else {
@@ -188,8 +204,15 @@ pub fn archive_suffix(format : String) -> String raise {
   validate_archive_format(format)
   match format {
     "bin" => ""
+    "tar" => ".tar"
     "tgz" => ".tgz"
     "tar.gz" => ".tar.gz"
+    "tbz2" => ".tbz2"
+    "tar.bz2" => ".tar.bz2"
+    "txz" => ".txz"
+    "tar.xz" => ".tar.xz"
+    "tzstd" | "tar.zst" => ".tar.zst"
+    "tar.zstd" => ".tar.zstd"
     "zip" => ".zip"
     _ => fail("unsupported archive format")
   }
@@ -198,11 +221,19 @@ pub fn archive_suffix(format : String) -> String raise {
 ///|
 pub fn validate_archive_format(format : String) -> Unit raise {
   guard format == "bin" ||
+    format == "tar" ||
     format == "tgz" ||
     format == "tar.gz" ||
+    format == "tbz2" ||
+    format == "tar.bz2" ||
+    format == "txz" ||
+    format == "tar.xz" ||
+    format == "tzstd" ||
+    format == "tar.zst" ||
+    format == "tar.zstd" ||
     format == "zip" else {
     fail(
-      "unsupported package format: \{format} (supported: bin, tgz, tar.gz, zip)",
+      "unsupported package format: \{format} (supported: bin, tar, tgz, tar.gz, tbz2, tar.bz2, txz, tar.xz, tzstd, tar.zst, zip)",
     )
   }
 }
@@ -256,7 +287,10 @@ pub fn default_artifact_names(
 ) -> Array[String] {
   let names : Array[String] = []
   let versions = [version, "v" + version]
-  let formats = ["", ".tar.gz", ".tgz", ".zip"]
+  let formats = [
+    "", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz",
+    ".tar.zst", ".tar.zstd", ".tzstd", ".zip",
+  ]
   for format in formats {
     names.push("\{binary}-\{target}\{format}")
     for version_part in versions {

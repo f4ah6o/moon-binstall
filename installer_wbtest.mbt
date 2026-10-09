@@ -24,6 +24,17 @@ async fn create_fixture_tar(
   content : String,
   member_path : String,
 ) -> Unit {
+  create_fixture_tar_format(root, archive, content, member_path, "tgz")
+}
+
+///|
+async fn create_fixture_tar_format(
+  root : String,
+  archive : String,
+  content : String,
+  member_path : String,
+  format : String,
+) -> Unit {
   let source = root + "/source"
   let parts = member_path.split("/").collect()
   let mut parent = source
@@ -32,8 +43,55 @@ async fn create_fixture_tar(
   }
   @fs.mkdir(parent, recursive=true)
   @fs.write_file(source + "/" + member_path, content)
-  let result = @shell.Cmd("tar", ["-czf", archive, "-C", source, member_path]).output()
+  let plain = root + "/source.tar"
+  let result = @shell.Cmd("tar", ["-cf", plain, "-C", source, member_path]).output()
   assert_eq(result.exit_code(), 0)
+  compress_fixture_tar(plain, archive, format)
+}
+
+///|
+async fn compress_fixture_tar(
+  plain : String,
+  archive : String,
+  format : String,
+) -> Unit {
+  let compressor = match format {
+    "tar" => None
+    "tgz" | "tar.gz" => Some("gzip")
+    "tbz2" | "tar.bz2" => Some("bzip2")
+    "txz" | "tar.xz" => Some("xz")
+    "tzstd" | "tar.zst" | "tar.zstd" => Some("zstd")
+    _ => fail("unknown tar fixture format: {format}")
+  }
+  match compressor {
+    Some(program) => {
+      let output = @shell.Cmd(program, ["-c", plain]).output(
+        max_output_bytes=1048576,
+      )
+      assert_eq(output.exit_code(), 0)
+      @fs.write_file(archive, output.stdout_bytes(), create_mode=CreateNew)
+    }
+    None =>
+      @fs.write_file(
+        archive,
+        @fs.read_file(plain).binary(),
+        create_mode=CreateNew,
+      )
+  }
+}
+
+///|
+async fn create_unsafe_fixture_tar(
+  root : String,
+  archive : String,
+  format : String,
+) -> Unit {
+  @fs.mkdir(root, recursive=true)
+  let plain = root + "/unsafe-" + format + ".tar"
+  let script = "import io,sys,tarfile; t=tarfile.open(sys.argv[1],'w'); x=tarfile.TarInfo('../escape'); d=b'bad'; x.size=len(d); t.addfile(x,io.BytesIO(d)); y=tarfile.TarInfo('bin/fixture'); e=b'safe'; y.size=len(e); t.addfile(y,io.BytesIO(e)); t.close()"
+  let result = @shell.Cmd("python3", ["-c", script, plain]).output()
+  assert_eq(result.exit_code(), 0)
+  compress_fixture_tar(plain, archive, format)
 }
 
 ///|
@@ -209,6 +267,200 @@ async fn fixture_install(
     output_dir,
     false,
   )
+}
+
+///|
+async test "tar codec formats extract only the selected member and enforce bounds" {
+  let root = @fs.tmpdir(prefix="moon-binstall-tar-codecs")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let content = "codec fixture payload"
+  let formats = [
+    "tar", "tgz", "tar.gz", "tbz2", "tar.bz2", "txz", "tar.xz",
+    "tzstd", "tar.zst",
+  ]
+  for i = 0; i < formats.length(); i = i + 1 {
+    let format = formats[i]
+    let suffix = archive_suffix(format)
+    let archive = root + "/safe-" + i.to_string() + suffix
+    create_fixture_tar_format(
+      root + "/safe-src-" + i.to_string(), archive, content,
+      "bin/fixture", format,
+    )
+    assert_eq(
+      @utf8.decode(read_artifact_binary(archive, format, Some("bin/fixture"))),
+      content,
+    )
+    if format != "tar" {
+      assert_true(
+        try {
+          ignore(read_artifact_binary(archive, "tar", Some("bin/fixture")))
+          false
+        } catch {
+          _ => true
+        },
+      )
+    }
+    assert_true(
+      try {
+        ignore(
+          read_artifact_binary_with_limit(
+            archive, format, Some("bin/fixture"), 3,
+          ),
+        )
+        false
+      } catch {
+        _ => true
+      },
+    )
+
+    let unsafe_archive = root + "/unsafe-" + i.to_string() + suffix
+    create_unsafe_fixture_tar(
+      root + "/unsafe-src-" + i.to_string(), unsafe_archive, format,
+    )
+    assert_true(
+      try {
+        ignore(
+          read_artifact_binary(
+            unsafe_archive, format, Some("bin/fixture"),
+          ),
+        )
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
+}
+
+///|
+async test "tar reader rejects bytes whose compression conflicts with declared format" {
+  let root = @fs.tmpdir(prefix="moon-binstall-format-mismatch")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let gzip_archive = root + "/fixture.tgz"
+  create_fixture_tar_format(
+    root + "/gzip-src", gzip_archive, "fixture", "bin/fixture", "tgz",
+  )
+  assert_true(
+    try {
+      ignore(read_artifact_binary(gzip_archive, "tbz2", Some("bin/fixture")))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let plain_archive = root + "/fixture.tar"
+  create_fixture_tar_format(
+    root + "/plain-src", plain_archive, "fixture", "bin/fixture", "tar",
+  )
+  assert_true(
+    try {
+      ignore(read_artifact_binary(plain_archive, "tar.gz", Some("bin/fixture")))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let zip_archive = root + "/fixture.zip"
+  create_fixture_zip(zip_archive, "bin/fixture", "fixture")
+  assert_true(
+    try {
+      ignore(read_artifact_binary(zip_archive, "tar", Some("bin/fixture")))
+      false
+    } catch {
+      _ => true
+    },
+  )
+}
+
+///|
+test "ordered targets prefer earlier assets and apply the matched target to templates" {
+  let options = parse_batch_options([
+    "acme/tool@v1.0.0", "--targets", "linux-x86_64,darwin-aarch64", "--pkg-url",
+    "https://github.com/acme/tool/releases/download/v1.0.0/{bin}-{target}{archive-suffix}",
+    "--pkg-fmt", "tgz", "--bin-path", "bin/{target}/{bin}",
+  ])
+  let first_name = "tool-linux-x86_64.tgz"
+  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + first_name
+  let second_name = "tool-darwin-aarch64.tgz"
+  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + second_name
+  let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let first_asset = "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"}"
+  let second_asset = "{\"name\":\"" + second_name + "\",\"browser_download_url\":\"" + second_url + "\",\"digest\":\"" + digest + "\"}"
+  let only_second = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + second_asset + "]}"
+  let resolved_second = resolve_asset_for_release(
+    only_second, "acme", "tool", "tool", "tool", "tool", "1.0.0",
+    "linux-x86_64", None, options,
+  )
+  assert_eq(resolved_second.asset.name, second_name)
+  assert_eq(resolved_second.bin_path, Some("bin/darwin-aarch64/tool"))
+
+  let both = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + first_asset + "," + second_asset + "]}"
+  let resolved_first = resolve_asset_for_release(
+    both, "acme", "tool", "tool", "tool", "tool", "1.0.0",
+    "linux-x86_64", None, options,
+  )
+  assert_eq(resolved_first.asset.name, first_name)
+
+  let unrelated_unsafe = "{\"name\":\"other-linux-x86_64.tgz\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"sha512:bad\"}"
+  let with_unselected_unsafe = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + unrelated_unsafe + "," + first_asset + "]}"
+  let resolved_with_unselected_unsafe = resolve_asset_for_release(
+    with_unselected_unsafe, "acme", "tool", "tool", "tool", "tool", "1.0.0",
+    "linux-x86_64", None, options,
+  )
+  assert_eq(resolved_with_unselected_unsafe.asset.name, first_name)
+
+  let empty = "{\"tag_name\":\"v1.0.0\",\"assets\":[]}"
+  assert_true(
+    try {
+      ignore(
+        resolve_asset_for_release(
+          empty, "acme", "tool", "tool", "tool", "tool", "1.0.0",
+          "linux-x86_64", None, options,
+        ),
+      )
+      false
+    } catch {
+      _ => true
+    },
+  )
+}
+
+///|
+test "malformed preferred target assets fail closed instead of falling back" {
+  let options = parse_batch_options([
+    "acme/tool@v1.0.0", "--targets", "linux-x86_64,darwin-aarch64", "--pkg-url",
+    "https://github.com/acme/tool/releases/download/v1.0.0/{bin}-{target}{archive-suffix}",
+    "--pkg-fmt", "tgz",
+  ])
+  let first_name = "tool-linux-x86_64.tgz"
+  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + first_name
+  let second_name = "tool-darwin-aarch64.tgz"
+  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + second_name
+  let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let valid_second = "{\"name\":\"" + second_name + "\",\"browser_download_url\":\"" + second_url + "\",\"digest\":\"" + digest + "\"}"
+  let invalid_preferred = [
+    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\"}",
+    "{\"name\":\"" + first_name + "\",\"browser_download_url\":null,\"digest\":\"" + digest + "\"}",
+    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"" + digest + "\"}",
+    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"sha512:bad\"}",
+    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"},{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"}",
+  ]
+  for bad_entries in invalid_preferred {
+    let payload = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + bad_entries + "," + valid_second + "]}"
+    assert_true(
+      try {
+        ignore(
+          resolve_asset_for_release(
+            payload, "acme", "tool", "tool", "tool", "tool", "1.0.0",
+            "linux-x86_64", None, options,
+          ),
+        )
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
 }
 
 ///|
