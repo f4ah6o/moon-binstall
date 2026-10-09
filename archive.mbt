@@ -167,9 +167,10 @@ async fn validate_tar_format_signature(
 }
 
 ///|
-/// A valid first-block checksum distinguishes uncompressed tar from every
-/// other archive or compression format, including ones tar can auto-detect.
+/// Verify a plausible first tar header after excluding common compressed and
+/// container signatures, whose metadata can also satisfy the tar checksum.
 async fn validate_plain_tar_header(archive_path : String) -> Unit {
+  reject_known_non_tar_signature(archive_path)
   let (code, output) = run_bounded(
     "od",
     ["-An", "-v", "-tu1", "-N", "512", archive_path],
@@ -212,6 +213,60 @@ async fn validate_plain_tar_header(archive_path : String) -> Unit {
   }
   guard actual_checksum == expected_checksum else {
     fail("plain tar archive has an invalid header checksum")
+  }
+}
+
+///|
+/// GNU tar and bsdtar can auto-detect compressed streams and other containers.
+/// Reject their recognizable magic before checking a declared plain tar.
+async fn reject_known_non_tar_signature(archive_path : String) -> Unit {
+  let (code, output) = run_bounded(
+    "od",
+    ["-An", "-tx1", "-N", "16", archive_path],
+    128,
+  )
+  guard code == 0 else { fail("could not inspect plain tar archive signature") }
+  let header = @utf8.decode(output).trim().to_owned()
+  let known_signatures = [
+    "1f 8b", // gzip
+    "42 5a 68", // bzip2
+    "fd 37 7a 58 5a 00", // xz
+    "28 b5 2f fd", // zstd
+    "1f 9d", // compress
+    "4c 5a 49 50", // lzip
+    "89 4c 5a 4f", // lzop
+    "04 22 4d 18", // lz4 frame
+    "02 21 4c 18", // legacy lz4
+    "50 4b 03 04", // ZIP local file
+    "50 4b 05 06", // empty ZIP
+    "50 4b 06 06", // ZIP64 end record
+    "50 4b 06 07", // ZIP64 locator
+    "50 4b 07 08", // spanned ZIP
+    "37 7a bc af 27 1c", // 7-Zip
+    "52 61 72 21 1a 07", // RAR
+    "30 37 30 37 30 31", // cpio newc
+    "30 37 30 37 30 32", // cpio newc with CRC
+    "30 37 30 37 30 37", // cpio odc
+    "21 3c 61 72 63 68 3e 0a", // ar
+    "ed ab ee db", // RPM
+    "4d 53 43 46", // Microsoft CAB
+  ]
+  for signature in known_signatures {
+    guard !header.has_prefix(signature) else {
+      fail("plain tar archive has a compressed or non-tar signature")
+    }
+  }
+  let bytes = whitespace_fields(header)
+  let skippable_zstd_magic = [
+    "50", "51", "52", "53", "54", "55", "56", "57",
+    "58", "59", "5a", "5b", "5c", "5d", "5e", "5f",
+  ]
+  if bytes.length() >= 4 &&
+    skippable_zstd_magic.contains(bytes[0]) &&
+    bytes[1] == "2a" &&
+    bytes[2] == "4d" &&
+    bytes[3] == "18" {
+    fail("plain tar archive has a compressed or non-tar signature")
   }
 }
 

@@ -95,6 +95,32 @@ async fn create_unsafe_fixture_tar(
 }
 
 ///|
+/// Build a valid gzip FEXTRA stream whose first 512 bytes pass the tar
+/// checksum check, reproducing a compression auto-detection ambiguity.
+async fn create_gzip_with_tar_checksum_fixture(archive : String) -> Unit {
+  let script = [
+    "import io, struct, sys, tarfile, zlib",
+    "plain = io.BytesIO()",
+    "with tarfile.open(fileobj=plain, mode='w') as archive:",
+    "    member = tarfile.TarInfo('bin/fixture')",
+    "    data = b'forged gzip fixture' + bytes([10])",
+    "    member.size = len(data)",
+    "    archive.addfile(member, io.BytesIO(data))",
+    "tar_data = plain.getvalue()",
+    "header = bytearray(bytes([31, 139, 8, 4]) + bytes(4) + bytes([0, 255]) + struct.pack('<H', 500) + bytes(500))",
+    "header[148:156] = bytes([32]) * 8",
+    "checksum = sum(header)",
+    "header[148:156] = ('%06o' % checksum).encode() + bytes([0, 32])",
+    "assert int(header[148:154], 8) == checksum",
+    "compressor = zlib.compressobj(wbits=-15)",
+    "gzip_data = bytes(header) + compressor.compress(tar_data) + compressor.flush() + struct.pack('<II', zlib.crc32(tar_data), len(tar_data))",
+    "open(sys.argv[1], 'wb').write(gzip_data)",
+  ].join("\n")
+  let result = @shell.Cmd("python3", ["-c", script, archive]).output()
+  assert_eq(result.exit_code(), 0)
+}
+
+///|
 async fn create_module_manifest_zip(
   archive : String,
   manifest : String,
@@ -365,6 +391,21 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   assert_true(
     try {
       ignore(read_artifact_binary(zip_archive, "tar", Some("bin/fixture")))
+      false
+    } catch {
+      _ => true
+    },
+  )
+
+  let forged_gzip_archive = root + "/gzip-with-tar-checksum.tar"
+  create_gzip_with_tar_checksum_fixture(forged_gzip_archive)
+  assert_true(
+    try {
+      ignore(
+        read_artifact_binary(
+          forged_gzip_archive, "tar", Some("bin/fixture"),
+        ),
+      )
       false
     } catch {
       _ => true
