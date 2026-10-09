@@ -414,6 +414,26 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
 }
 
 ///|
+async test "plain tar accepts member names that resemble ASCII container magic" {
+  let root = @fs.tmpdir(prefix="moon-binstall-tar-ascii-magic-names")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let content = "valid plain tar member"
+  for name in [
+    "BZh-tool", "LZIP-tool", "070701-tool", "070702-tool", "070707-tool",
+    "MSCF-tool",
+  ] {
+    let archive = root + "/" + name + ".tar"
+    create_fixture_tar_format(
+      root + "/source-" + name, archive, content, name, "tar",
+    )
+    assert_eq(
+      @utf8.decode(read_artifact_binary(archive, "tar", Some(name))),
+      content,
+    )
+  }
+}
+
+///|
 test "ordered targets prefer earlier assets and apply the matched target to templates" {
   let options = parse_batch_options([
     "acme/tool@v1.0.0", "--targets", "linux-x86_64,darwin-aarch64", "--pkg-url",

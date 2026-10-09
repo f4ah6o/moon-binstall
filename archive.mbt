@@ -229,11 +229,9 @@ async fn reject_known_non_tar_signature(archive_path : String) -> Unit {
   let header = @utf8.decode(output).trim().to_owned()
   let known_signatures = [
     "1f 8b", // gzip
-    "42 5a 68", // bzip2
     "fd 37 7a 58 5a 00", // xz
     "28 b5 2f fd", // zstd
     "1f 9d", // compress
-    "4c 5a 49 50", // lzip
     "89 4c 5a 4f", // lzop
     "04 22 4d 18", // lz4 frame
     "02 21 4c 18", // legacy lz4
@@ -244,12 +242,8 @@ async fn reject_known_non_tar_signature(archive_path : String) -> Unit {
     "50 4b 07 08", // spanned ZIP
     "37 7a bc af 27 1c", // 7-Zip
     "52 61 72 21 1a 07", // RAR
-    "30 37 30 37 30 31", // cpio newc
-    "30 37 30 37 30 32", // cpio newc with CRC
-    "30 37 30 37 30 37", // cpio odc
     "21 3c 61 72 63 68 3e 0a", // ar
     "ed ab ee db", // RPM
-    "4d 53 43 46", // Microsoft CAB
   ]
   for signature in known_signatures {
     guard !header.has_prefix(signature) else {
