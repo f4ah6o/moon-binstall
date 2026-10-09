@@ -123,3 +123,60 @@ test "explicit package format selects matching asset when raw and zip coexist" {
   )
   assert_eq(asset.name, "tool-linux-x86_64.zip")
 }
+
+///|
+test "common tar package formats and suffixes are recognized" {
+  assert_eq(infer_archive_format("tool.tar"), "tar")
+  assert_eq(infer_archive_format("tool.tgz"), "tgz")
+  assert_eq(infer_archive_format("tool.tar.gz"), "tar.gz")
+  assert_eq(infer_archive_format("tool.tbz2"), "tbz2")
+  assert_eq(infer_archive_format("tool.tar.bz2"), "tar.bz2")
+  assert_eq(infer_archive_format("tool.txz"), "txz")
+  assert_eq(infer_archive_format("tool.tar.xz"), "tar.xz")
+  assert_eq(infer_archive_format("tool.tar.zst"), "tzstd")
+  assert_eq(infer_archive_format("tool.tar.zstd"), "tar.zstd")
+  assert_eq(infer_archive_format("tool.zip"), "zip")
+  assert_eq(archive_suffix("tzstd"), ".tar.zst")
+  assert_eq(archive_suffix("tar.bz2"), ".tar.bz2")
+  for format in [
+    "tar", "tgz", "tar.gz", "tbz2", "tar.bz2", "txz", "tar.xz",
+    "tzstd", "tar.zst", "tar.zstd",
+  ] {
+    validate_archive_format(format)
+  }
+}
+
+///|
+test "target candidates preserve order and reject ambiguous lists" {
+  let options = parse_batch_options([
+    "acme/tool", "--targets", "darwin-aarch64, linux-x86_64",
+  ])
+  assert_eq(options.target, Some("darwin-aarch64,linux-x86_64"))
+  let invalid_lists = [
+    "", ",linux-x86_64", "linux-x86_64,", "linux-x86_64,,darwin-aarch64",
+    "linux-x86_64,linux-x86_64", "windows-x86_64",
+  ]
+  for value in invalid_lists {
+    assert_true(
+      try {
+        ignore(parse_target_list(value))
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
+  for args in [
+    ["acme/tool", "--target", "linux-x86_64", "--targets", "darwin-aarch64"],
+    ["acme/tool", "--targets", "darwin-aarch64", "--target", "linux-x86_64"],
+  ] {
+    assert_true(
+      try {
+        ignore(parse_batch_options(args))
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
+}

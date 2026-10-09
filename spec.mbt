@@ -283,6 +283,25 @@ pub fn resolve_release_names(
   expected_names : Array[String],
   expected_tag : String?,
 ) -> ReleaseAsset raise {
+  match
+    resolve_release_names_optional(
+      payload, owner, repo, expected_names, expected_tag,
+    ) {
+    Some(asset) => asset
+    None => fail("no matching prebuilt asset in release")
+  }
+}
+
+///|
+/// Resolve the first present candidate, returning None only when none of the
+/// expected names exists. A matching but malformed entry is always an error.
+pub fn resolve_release_names_optional(
+  payload : String,
+  owner : String,
+  repo : String,
+  expected_names : Array[String],
+  expected_tag : String?,
+) -> ReleaseAsset? raise {
   let document = @json.parse(payload)
   guard document is { "tag_name": String(tag), "assets": Array(assets), .. } else {
     fail("invalid GitHub release response")
@@ -303,17 +322,17 @@ pub fn resolve_release_names(
     let mut matched : ReleaseAsset? = None
     for entry in assets {
       match entry {
-        {
-          "name": String(name),
-          "browser_download_url": String(url),
-          "digest": String(digest),
-          ..
-        } => {
-          if name != expected {
-            continue
-          }
+        { "name": String(name), .. } if name == expected => {
           if matched is Some(_) {
             fail("duplicate release asset name: \{name}")
+          }
+          let (url, digest) = match entry {
+            {
+              "browser_download_url": String(url),
+              "digest": String(digest),
+              ..
+            } => (url, digest)
+            _ => fail("release asset metadata is incomplete: \{name}")
           }
           guard valid_github_digest(digest) else {
             fail("release asset has no valid SHA-256 digest")
@@ -332,10 +351,10 @@ pub fn resolve_release_names(
       }
     }
     if matched is Some(asset) {
-      return asset
+      return Some(asset)
     }
   }
-  fail("no matching prebuilt asset in release \{tag}")
+  None
 }
 
 ///|

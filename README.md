@@ -155,11 +155,12 @@ with `--manifest-path FILE`; there it defaults to
 `https://github.com/{owner}/{module}` when omitted. Each package entry uses its
 MoonBit package path. Optional `binary` sets the installed executable name.
 `pkg-url` selects the asset URL template and
-`pkg-fmt` selects `bin`, `tgz`, `tar.gz` or `zip`. Archive packages default to
-the executable name as their member path; `bin-path` or the CLI's `--bin-path`
-can select a different member. `--pkg-url`, `--pkg-fmt` and `--bin-path`
-override manifest values for one invocation. A local manifest can be supplied
-with `--manifest-path FILE`; this is limited to one package and skips Mooncakes
+`pkg-fmt` selects `bin`, `tar`, `tgz`, `tar.gz`, `tbz2`, `tar.bz2`, `txz`,
+`tar.xz`, `tzstd`, `tar.zst` or `zip`. Archive packages default to the
+executable name as their member path; `bin-path` or the CLI's `--bin-path` can
+select a different member. `--pkg-url`, `--pkg-fmt` and `--bin-path` override
+manifest values for one invocation. A local manifest can be supplied with
+`--manifest-path FILE`; this is limited to one package and skips Mooncakes
 lookup.
 
 Templates support `{repo}` (the module GitHub repository URL), `{name}` or
@@ -172,13 +173,18 @@ GitHub repository and release tag selected by the API.
 
 By default, the resolver checks common names such as
 `<binary>-<target>`, `<binary>-<target>-<version>` and
-`<binary>-<version>-<target>`, including `.tar.gz`, `.tgz` and `.zip` archive
-suffixes. Supplying `--pkg-fmt` restricts matching to that format, so a raw
-asset cannot shadow a requested archive.
+`<binary>-<version>-<target>`, including `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`,
+`.tbz2`, `.tar.xz`, `.txz`, `.tar.zst` and `.zip` archive suffixes. Supplying
+`--pkg-fmt` restricts matching to that format, so a raw asset cannot shadow a
+requested archive.
 
 `--bin-dir` continues to mean the destination directory for compatibility.
 Use `--bin-path` for a member inside an archive. `--version` applies to one
-package; use `@VERSION` on each coordinate in a batch. Multiple packages that
+package; use `@VERSION` on each coordinate in a batch. `--targets` accepts a
+comma-separated ordered list from the supported target names and selects the
+first matching asset. A matching asset with malformed metadata or an invalid
+digest fails the install instead of falling through to a lower-priority
+target. `--target` and `--targets` cannot be combined. Multiple packages that
 resolve to executable names that differ only by ASCII case are rejected on all
 platforms (for example, `tool` and `Tool`).
 
@@ -201,10 +207,11 @@ Update the version in `installer.mbt` as well so `moon binstall --version` match
 
 ## Release contract
 
-GitHub Releases must include a matching raw executable or a supported `.tgz`,
-`.tar.gz` or `.zip` archive for the requested target. Every selected asset must
-include GitHub's `sha256:<64 hex digits>` digest metadata. Missing assets or
-digests are errors; installation never falls back to building from source.
+GitHub Releases must include a matching raw executable or a supported `.tar`,
+`.tgz`, `.tar.gz`, `.tbz2`, `.tar.bz2`, `.txz`, `.tar.xz`, `.tzstd`, `.tar.zst`
+or `.zip` archive for the requested target. Every selected asset must include
+GitHub's `sha256:<64 hex digits>` digest metadata. Missing assets or digests
+are errors; installation never falls back to building from source.
 The built-in target names are `linux-x86_64`, `linux-aarch64`, `darwin-x86_64`
 and `darwin-aarch64`. The resolver accepts all four names; this repository's
 release workflow currently builds Linux x86_64, Linux aarch64 and macOS
@@ -235,11 +242,12 @@ destinations remain blocked, including with `--force`.
 Runtime requirements are `curl` 8.4.0 or newer and Linux or macOS. The minimum
 version is required because curl only enforces the download size limit during
 transfers with an unknown content length starting in 8.4.0. Asset downloads
-are capped at 256 MiB, and captured API/source metadata at 16 MiB. Installing
-`.tgz` or `.tar.gz` assets also requires `tar` with gzip support; installing
-`.zip` assets requires `zipinfo` and `unzip` (provided by the common `unzip`
-package on Ubuntu). `moon test` additionally requires Python 3 to create
-deterministic archive fixtures; production installation does not invoke Python.
+are capped at 256 MiB, and captured API/source metadata at 16 MiB. Tar formats
+require `tar` and the matching gzip, bzip2, xz or zstd codec; `tzstd` uses the
+`zstd` command. Zip assets require `zipinfo` and `unzip` (provided by the common
+`unzip` package on Ubuntu). `moon test` additionally requires Python 3 and the
+codec commands to create deterministic archive fixtures; production
+installation does not invoke Python.
 
 ## Scope compared with cargo-binstall
 

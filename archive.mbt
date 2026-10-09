@@ -47,8 +47,9 @@ pub async fn read_artifact_binary_with_limit(
   }
   validate_member_path(selected_path)
   let bytes = match format {
-    "tgz" | "tar.gz" =>
-      read_tar_member(archive_path, selected_path, max_binary_bytes)
+    "tar" | "tgz" | "tar.gz" | "tbz2" | "tar.bz2" | "txz" | "tar.xz" |
+    "tzstd" | "tar.zst" | "tar.zstd" =>
+      read_tar_member(archive_path, selected_path, max_binary_bytes, format)
     "zip" => read_zip_member(archive_path, selected_path, max_binary_bytes)
     _ => fail("unsupported package format")
   }
@@ -63,17 +64,19 @@ async fn read_tar_member(
   archive_path : String,
   wanted : String,
   max_binary_bytes : Int,
+  format : String,
 ) -> Bytes {
+  validate_tar_format_signature(archive_path, format)
   let (list_code, list_data) = run_bounded(
     "tar",
-    ["-tzf", archive_path],
+    ["-t", "-f", archive_path],
     max_archive_listing_bytes,
   )
   guard list_code == 0 else { fail("tar could not list the package archive") }
   let names = nonempty_lines(@utf8.decode(list_data))
   let (verbose_code, verbose_data) = run_bounded(
     "tar",
-    ["-tvzf", archive_path],
+    ["-t", "-v", "-f", archive_path],
     max_archive_listing_bytes,
   )
   guard verbose_code == 0 else {
@@ -126,11 +129,163 @@ async fn read_tar_member(
   }
   let (code, output) = run_bounded(
     "tar",
-    ["-xOzf", archive_path, "--", selected_name],
+    ["-xO", "-f", archive_path, "--", selected_name],
     max_binary_bytes,
   )
   guard code == 0 else { fail("tar could not read the selected binary") }
   output
+}
+
+///|
+/// GNU tar and bsdtar detect compression by archive magic when reading. Check
+/// that the declared package format agrees with that magic before invoking tar.
+async fn validate_tar_format_signature(
+  archive_path : String,
+  format : String,
+) -> Unit {
+  if format == "tar" {
+    validate_plain_tar_header(archive_path)
+    return
+  }
+  let signature = match format {
+    "tgz" | "tar.gz" => "1f 8b"
+    "tbz2" | "tar.bz2" => "42 5a 68"
+    "txz" | "tar.xz" => "fd 37 7a 58 5a 00"
+    "tzstd" | "tar.zst" | "tar.zstd" => "28 b5 2f fd"
+    _ => fail("unsupported tar package format: \{format}")
+  }
+  let (code, output) = run_bounded(
+    "od",
+    ["-An", "-tx1", "-N", "6", archive_path],
+    64,
+  )
+  guard code == 0 else { fail("could not inspect tar archive header") }
+  let header = @utf8.decode(output).trim().to_owned()
+  guard header.has_prefix(signature) else {
+    fail("tar archive compression does not match the declared format")
+  }
+}
+
+///|
+/// Verify a plausible first tar header after excluding common compressed and
+/// container signatures, whose metadata can also satisfy the tar checksum.
+async fn validate_plain_tar_header(archive_path : String) -> Unit {
+  reject_known_non_tar_signature(archive_path)
+  let (code, output) = run_bounded(
+    "od",
+    ["-An", "-v", "-tu1", "-N", "512", archive_path],
+    4096,
+  )
+  guard code == 0 else { fail("could not inspect plain tar archive header") }
+  let text = @utf8.decode(output).split("\n").collect().join(" ")
+  let fields = whitespace_fields(text)
+  guard fields.length() == 512 else {
+    fail("plain tar archive has an incomplete header")
+  }
+  let header : Array[Int] = []
+  for field in fields {
+    header.push(parse_decimal_byte(field))
+  }
+  let mut expected_checksum = 0
+  let mut checksum_has_digits = false
+  for i = 148; i < 156; i = i + 1 {
+    let byte = header[i]
+    if byte == 0 || byte == 32 {
+      continue
+    }
+    guard byte >= 48 && byte <= 55 else {
+      fail("plain tar archive has an invalid checksum field")
+    }
+    expected_checksum = expected_checksum * 8 + byte - 48
+    checksum_has_digits = true
+  }
+  guard checksum_has_digits else {
+    fail("plain tar archive has an empty checksum field")
+  }
+  let mut actual_checksum = 0
+  for i = 0; i < header.length(); i = i + 1 {
+    let byte = if i >= 148 && i < 156 {
+      32
+    } else {
+      header[i]
+    }
+    actual_checksum = actual_checksum + byte
+  }
+  guard actual_checksum == expected_checksum else {
+    fail("plain tar archive has an invalid header checksum")
+  }
+}
+
+///|
+/// GNU tar and bsdtar can auto-detect compressed streams and other containers.
+/// Reject their recognizable magic before checking a declared plain tar.
+async fn reject_known_non_tar_signature(archive_path : String) -> Unit {
+  let (code, output) = run_bounded(
+    "od",
+    ["-An", "-tx1", "-N", "16", archive_path],
+    128,
+  )
+  guard code == 0 else { fail("could not inspect plain tar archive signature") }
+  let header = @utf8.decode(output).trim().to_owned()
+  let known_signatures = [
+    "1f 8b", // gzip
+    "fd 37 7a 58 5a 00", // xz
+    "28 b5 2f fd", // zstd
+    "1f 9d", // compress
+    "89 4c 5a 4f", // lzop
+    "04 22 4d 18", // lz4 frame
+    "02 21 4c 18", // legacy lz4
+    "50 4b 03 04", // ZIP local file
+    "50 4b 05 06", // empty ZIP
+    "50 4b 06 06", // ZIP64 end record
+    "50 4b 06 07", // ZIP64 locator
+    "50 4b 07 08", // spanned ZIP
+    "37 7a bc af 27 1c", // 7-Zip
+    "52 61 72 21 1a 07", // RAR
+    "21 3c 61 72 63 68 3e 0a", // ar
+    "ed ab ee db", // RPM
+  ]
+  for signature in known_signatures {
+    guard !header.has_prefix(signature) else {
+      fail("plain tar archive has a compressed or non-tar signature")
+    }
+  }
+  let bytes = whitespace_fields(header)
+  let skippable_zstd_magic = [
+    "50", "51", "52", "53", "54", "55", "56", "57",
+    "58", "59", "5a", "5b", "5c", "5d", "5e", "5f",
+  ]
+  if bytes.length() >= 4 &&
+    skippable_zstd_magic.contains(bytes[0]) &&
+    bytes[1] == "2a" &&
+    bytes[2] == "4d" &&
+    bytes[3] == "18" {
+    fail("plain tar archive has a compressed or non-tar signature")
+  }
+}
+
+///|
+fn parse_decimal_byte(value : String) -> Int raise {
+  guard value != "" else { fail("invalid byte value in tar header") }
+  let mut result = 0
+  for c in value {
+    let digit = match c {
+      '0' => 0
+      '1' => 1
+      '2' => 2
+      '3' => 3
+      '4' => 4
+      '5' => 5
+      '6' => 6
+      '7' => 7
+      '8' => 8
+      '9' => 9
+      _ => fail("invalid byte value in tar header")
+    }
+    result = result * 10 + digit
+  }
+  guard result <= 255 else { fail("invalid byte value in tar header") }
+  result
 }
 
 ///|

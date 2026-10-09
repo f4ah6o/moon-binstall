@@ -14,6 +14,7 @@ pub struct BatchOptions {
   directory : String?
   dry_run : Bool
   force : Bool
+  /// One target or an ordered comma-separated list produced by --targets.
   target : String?
   version : String?
   pkg_url : String?
@@ -41,10 +42,12 @@ pub fn usage() -> String {
     #|  --version VERSION     select one package version (or use @VERSION per item)
     #|  --target TARGET       override linux-x86_64, linux-aarch64, darwin-x86_64,
     #|                        or darwin-aarch64
+    #|  --targets TARGETS     try comma-separated targets in the given order
     #|  --bin-dir DIR         destination directory (default $HOME/.local/bin)
     #|  --bin-path PATH       executable path inside an archive
     #|  --pkg-url TEMPLATE    release asset URL template
-    #|  --pkg-fmt FORMAT      bin, tgz, tar.gz, or zip
+    #|  --pkg-fmt FORMAT      bin, tar, tgz, tar.gz, tbz2, tar.bz2, txz,
+    #|                        tar.xz, tzstd, tar.zst, or zip
     #|  --manifest-path FILE  read local moon-binstall.json and skip registry lookup
     #|  --force               replace an existing regular executable
     #|  --dry-run             resolve without installing
@@ -56,7 +59,8 @@ pub fn usage() -> String {
     #|Aliases: turtles, hotpath, dsh
     #|Environment: MOON_BINSTALL_DIR (default $HOME/.local/bin)
     #|
-    #|Requires: curl >= 8.4.0; tar/gzip for tgz; unzip/zipinfo for zip; macOS or Linux.
+    #|Requires: curl >= 8.4.0; tar and matching codecs for tar archives;
+    #|          zstd for tzstd; unzip/zipinfo for zip; macOS or Linux.
     #|Every release asset must include GitHub's SHA-256 digest.
     #|hotpath installs the optional hotpath-report example binary, not the library.
   msg
@@ -108,6 +112,8 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
   let mut manifest_path : String? = None
   let mut dry_run = false
   let mut force = false
+  let mut seen_target = false
+  let mut seen_targets = false
   let mut seen_dry_run = false
   let mut seen_force = false
   let mut idx = 0
@@ -136,8 +142,23 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
       "--target" => {
         idx = idx + 1
         guard idx < argv.length() else { fail("--target requires a target") }
-        guard target is None else { fail("duplicate argument: --target") }
+        guard !seen_target else { fail("duplicate argument: --target") }
+        guard !seen_targets else {
+          fail("--target and --targets are mutually exclusive")
+        }
+        seen_target = true
+        validate_target(argv[idx])
         target = Some(argv[idx])
+      }
+      "--targets" => {
+        idx = idx + 1
+        guard idx < argv.length() else { fail("--targets requires a target list") }
+        guard !seen_targets else { fail("duplicate argument: --targets") }
+        guard !seen_target else {
+          fail("--target and --targets are mutually exclusive")
+        }
+        seen_targets = true
+        target = Some(parse_target_list(argv[idx]).join(","))
       }
       "--version" => {
         idx = idx + 1
@@ -235,10 +256,6 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
       fail("--manifest-path requires a Mooncakes package coordinate")
     }
   }
-  match target {
-    Some(value) => validate_target(value)
-    None => ()
-  }
   {
     coordinates,
     directory,
@@ -262,6 +279,27 @@ pub fn validate_target(target : String) -> Unit raise {
     target == "darwin-aarch64" else {
     fail("unsupported target: \{target}")
   }
+}
+
+///|
+/// Keep the public BatchOptions shape source-compatible: --targets is stored
+/// in its existing target field as a comma-separated, validated sequence.
+pub fn parse_target_list(value : String) -> Array[String] raise {
+  let entries = value.split(",").collect()
+  guard entries.length() > 0 else { fail("--targets requires a target list") }
+  let targets : Array[String] = []
+  for entry in entries {
+    let candidate = entry.trim().to_owned()
+    guard candidate != "" else {
+      fail("--targets contains an empty target")
+    }
+    validate_target(candidate)
+    guard !targets.contains(candidate) else {
+      fail("duplicate target in --targets: \{candidate}")
+    }
+    targets.push(candidate)
+  }
+  targets
 }
 
 ///|
@@ -498,6 +536,13 @@ fn resolve_asset_for_release(
   options : BatchOptions,
 ) -> ResolvedInstall raise {
   let tag = release_tag(payload)
+  let target_candidates = match options.target {
+    Some(value) => parse_target_list(value)
+    None => {
+      validate_target(target)
+      [target]
+    }
+  }
   let selected_template = match options.pkg_url {
     Some(value) => Some(value)
     None =>
@@ -522,21 +567,37 @@ fn resolve_asset_for_release(
         None => "bin"
       }
   }
-  let names = match selected_template {
-    Some(template) => {
-      let suffix = archive_suffix(format_hint)
-      let expanded = expand_artifact_template(
-        template, owner, repo, module_name, package_path, binary, version_value,
-        target, suffix,
-      )
-      [artifact_url_asset_name(expanded, owner, repo, tag)]
+  let mut selected_asset : (ReleaseAsset, String)? = None
+  for candidate_target in target_candidates {
+    let names = match selected_template {
+      Some(template) => {
+        let suffix = archive_suffix(format_hint)
+        let expanded = expand_artifact_template(
+          template, owner, repo, module_name, package_path, binary,
+          version_value, candidate_target, suffix,
+        )
+        [artifact_url_asset_name(expanded, owner, repo, tag)]
+      }
+      None =>
+        default_artifact_names_for_format(
+          binary, version_value, candidate_target, requested_format,
+        )
     }
-    None =>
-      default_artifact_names_for_format(
-        binary, version_value, target, requested_format,
-      )
+    match
+      resolve_release_names_optional(
+        payload, owner, repo, names, Some(tag),
+      ) {
+      Some(asset) => {
+        selected_asset = Some((asset, candidate_target))
+        break
+      }
+      None => ()
+    }
   }
-  let asset = resolve_release_names(payload, owner, repo, names, Some(tag))
+  let (asset, matched_target) = match selected_asset {
+    Some(value) => value
+    None => fail("no matching prebuilt asset in release \{tag}")
+  }
   let format = match requested_format {
     Some(value) => value
     None => infer_archive_format(asset.name)
@@ -563,7 +624,7 @@ fn resolve_asset_for_release(
             package_path,
             binary,
             version_value,
-            target,
+            matched_target,
             archive_suffix(format),
           )
         None => binary
@@ -852,7 +913,7 @@ async fn install_many_using(
   transport : Transport,
 ) -> Unit {
   let target = match options.target {
-    Some(value) => value
+    Some(value) => parse_target_list(value)[0]
     None => require_platform()
   }
   let workspace = @fs.tmpdir(prefix="moon-binstall")
