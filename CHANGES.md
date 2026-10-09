@@ -12,6 +12,22 @@
 
 ### Removed
 
+### Security
+
+### Migration
+
+## 0.1.4 - 2026-10-09
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
 - Removed the built-in `turtles`, `hotpath`, and `dsh` package shortcuts. GitHub coordinates now follow the same `owner/repo[@tag]` rule, and repository names ending in `.mbt` use their generic binary name.
 
 ### Security
