@@ -1,9 +1,10 @@
 # moon-binstall
 
-Install **precompiled**, SHA-256-verified MoonBit CLI binaries from GitHub Releases.
-The resolver, CLI, platform matching, filesystem operations and digest verification
-are implemented in MoonBit (native). `curl` is used only for HTTPS transfers
-because release asset downloads involve redirects.
+Install **precompiled**, SHA-256-verified MoonBit CLI binaries from GitHub Releases
+or versioned Mooncakes modules. The resolver, CLI, platform matching, archive
+inspection, filesystem operations and digest verification are implemented in
+MoonBit (native). `curl` is used for HTTPS transfers because release downloads
+involve redirects.
 
 ## Install from Mooncakes
 
@@ -102,6 +103,81 @@ Supported aliases:
 library in your project, use `moon add f4ah6o/hotpath` instead. The
 `hotpath-report` binary is the repository's terminal-report example.
 
+## Install Mooncakes packages
+
+Use `owner/module/package[@version]` to select a package inside a Mooncakes
+module. Three or more slash-separated components select Mooncakes metadata;
+the existing two-component `owner/repo[@tag]` form and the aliases above keep
+their GitHub Releases behavior. For a module with several packages, supply the
+module once with `--module` and then list package paths:
+
+```sh
+moon binstall f4ah6o/moon-binstall/cmd/main@0.1.2 \
+  --target linux-x86_64 --dry-run \
+  --pkg-fmt bin \
+  --pkg-url 'https://github.com/f4ah6o/moon-binstall/releases/download/v{version}/moon-binstall-{target}'
+
+moon binstall owner/module/cmd/first@1.2.0 owner/module/cmd/second@2.0.0 \
+  --bin-dir "$HOME/.local/bin"
+
+moon binstall --module owner/module cmd/first cmd/second@2.0.0
+```
+
+Without an explicit `@version`, the installer asks Mooncakes for the module's
+latest release and pins the returned exact version for source and GitHub release
+resolution. It checks that Mooncakes returned the requested module and version,
+rejects yanked releases, and verifies the module source ZIP against the registry
+checksum before reading its optional `moon-binstall.json`. That source checksum
+authenticates the source archive only. The selected GitHub executable still
+needs GitHub's independent `sha256:<64 hex digits>` release-asset digest.
+
+A module may put an optional `moon-binstall.json` at its source root to describe
+each package's release asset. For example:
+
+```json
+{
+  "repository": "https://github.com/owner/repo",
+  "packages": [
+    {
+      "package": "cmd/main",
+      "binary": "tool",
+      "pkg-url": "{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}",
+      "pkg-fmt": "tgz",
+      "bin-path": "{package}/{bin}"
+    }
+  ]
+}
+```
+
+`repository` defaults to `https://github.com/{owner}/{module}` when omitted.
+Each package entry uses its MoonBit package path. Optional `binary` sets the
+installed executable name. `pkg-url` selects the asset URL template and
+`pkg-fmt` selects `bin`, `tgz`, `tar.gz` or `zip`. Archive packages default to
+the executable name as their member path; `bin-path` or the CLI's `--bin-path`
+can select a different member. `--pkg-url`, `--pkg-fmt` and `--bin-path`
+override manifest values for one invocation. A local manifest can be supplied
+with `--manifest-path FILE`; this is limited to one package and skips Mooncakes
+lookup.
+
+Templates support `{repo}` (the module GitHub repository URL), `{name}` or
+`{module}` (the module's last path component), `{package}`, `{bin}` or
+`{binary}`, `{version}` (without a leading `v`), `{target}`,
+`{archive-suffix}` and `{archive-format}`. A template using
+`{archive-suffix}` should also set `pkg-fmt` or pass `--pkg-fmt`, so the suffix
+and extraction mode agree. Resolved asset URLs must remain under the exact
+GitHub repository and release tag selected by the API.
+
+By default, the resolver checks common names such as
+`<binary>-<target>`, `<binary>-<target>-<version>` and
+`<binary>-<version>-<target>`, including `.tar.gz`, `.tgz` and `.zip` archive
+suffixes. Supplying `--pkg-fmt` restricts matching to that format, so a raw
+asset cannot shadow a requested archive.
+
+`--bin-dir` continues to mean the destination directory for compatibility.
+Use `--bin-path` for a member inside an archive. `--version` applies to one
+package; use `@VERSION` on each coordinate in a batch. Multiple packages that
+resolve to the same executable name are rejected.
+
 ## Versioned native releases
 
 Edit the `version` field in `moon.mod` to the intended SemVer version
@@ -121,35 +197,61 @@ Update the version in `installer.mbt` as well so `moon binstall --version` match
 
 ## Release contract
 
-The repository must publish a **raw executable** named
-`<binary>-<platform>`, where platform is
-`linux-x86_64`, `linux-aarch64` or `darwin-aarch64` in the provided CI workflow.
-`darwin-x86_64` is recognized by the resolver, but the current MoonBit setup
-workflow cannot build for Intel macOS; no matching release binary is published.
-Releases must include GitHub's `sha256:<64 hex digits>` digest metadata
-for each asset. Missing assets or digests are errors — no unverified
-installation or silent source-build fallback.
+GitHub Releases must include a matching raw executable or a supported `.tgz`,
+`.tar.gz` or `.zip` archive for the requested target. Every selected asset must
+include GitHub's `sha256:<64 hex digits>` digest metadata. Missing assets or
+digests are errors; installation never falls back to building from source.
+The built-in target names are `linux-x86_64`, `linux-aarch64`, `darwin-x86_64`
+and `darwin-aarch64`. The resolver accepts all four names; this repository's
+release workflow currently builds Linux x86_64, Linux aarch64 and macOS
+aarch64 assets. It does not publish an Intel macOS asset.
 
 By default the latest non-prerelease GitHub Release is used. Specify
 `@<tag>` for a release tag. `--dry-run` resolves without installing,
 `--force` replaces an existing **regular file** after verification, and
-`--bin-dir` or `MOON_BINSTALL_DIR` overrides `$HOME/.local/bin`.
+`--bin-dir` or `MOON_BINSTALL_DIR` overrides `$HOME/.local/bin`. Install batches
+are fully downloaded and verified before the first destination is replaced.
 The destination directory must be added to `PATH`.
 
 ## Security
 
-No downloaded asset is executed during installation. Download uses HTTPS
-only, checksum verification is mandatory, unsupported platforms fail closed,
-and the final rename occurs only after verification. Symlink destinations
-and existing files are rejected unless explicitly permitted as regular files
-with `--force`.
+No downloaded asset is executed during installation. Registry, GitHub API and
+asset transfers use HTTPS and redirects must remain HTTPS. The Mooncakes source
+ZIP checksum and selected GitHub release asset digest are checked separately.
+Before extraction, the installer rejects traversal, duplicate names, links,
+special files and option-like paths. It reads only the chosen regular member,
+limits archive listings to 16 MiB and 100,000 entries, caps selected binary
+output at 128 MiB, stages files in private directories on the destination
+filesystem, and renames only after verification. Symlink and non-regular
+destinations remain blocked, including with `--force`.
 
-## Current release status
+Runtime requirements are `curl` 8.4.0 or newer and Linux or macOS. The minimum
+version is required because curl only enforces the download size limit during
+transfers with an unknown content length starting in 8.4.0. Asset downloads
+are capped at 256 MiB, and captured API/source metadata at 16 MiB. Installing
+`.tgz` or `.tar.gz` assets also requires `tar` with gzip support; installing
+`.zip` assets requires `zipinfo` and `unzip` (provided by the common `unzip`
+package on Ubuntu). `moon test` additionally requires Python 3 to create
+deterministic archive fixtures; production installation does not invoke Python.
 
-The three initial repositories did not have GitHub Releases as of
-2026-10-08. Until matching verified release assets are published,
-installation correctly reports an unavailable release/asset rather than
-pretending success.
+## Scope compared with cargo-binstall
+
+This project adapts the binary-install workflow to MoonBit: it resolves
+Mooncakes module metadata, selects versioned GitHub release assets, supports
+package batches and a source-controlled `moon-binstall.json`, verifies
+independent source and executable checksums, and safely installs raw, tar-gzip
+or zip binaries. It does not implement Cargo- or Rust-specific behavior: it
+does not read Cargo manifests, query crates.io, invoke `cargo` or `rustup`,
+build Rust source, install Rust dependencies, or support arbitrary registries
+and external asset hosts. The resolver accepts exactly
+`linux-x86_64`, `linux-aarch64`, `darwin-x86_64` and `darwin-aarch64`; Windows
+is not supported. This repository publishes release binaries for Linux
+x86_64, Linux aarch64 and macOS aarch64.
+
+The repository's own `moon-binstall.json` maps MoonBit package `cmd/main` to
+the `moon-binstall` executable and the raw release asset naming convention.
+This lets a published Mooncakes source version use the same release contract
+without command-line asset overrides.
 
 ## Mooncakes
 

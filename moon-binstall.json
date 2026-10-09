@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/f4ah6o/moon-binstall",
+  "packages": [
+    {
+      "package": "cmd/main",
+      "binary": "moon-binstall",
+      "pkg-url": "{repo}/releases/download/v{version}/{bin}-{target}",
+      "pkg-fmt": "bin"
+    }
+  ]
+}

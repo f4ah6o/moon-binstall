@@ -14,6 +14,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Install native test and archive tools
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends curl gzip python3 tar unzip
       - uses: hustcer/setup-moonbit@v1
       - name: Resolve dependencies
         run: |
@@ -23,6 +25,8 @@ jobs:
         run: moon check --target native --deny-warn
       - name: Tests
         run: moon test --target native
+      - name: Release version tests
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release_version.py' -v
       - name: Validate Mooncakes package contents
         run: moon package --list
       - name: Build native CLI
@@ -41,6 +45,8 @@ jobs:
           expected="$(python3 scripts/release_version.py read --kind moon-binstall)"
           test "$(moon binstall --version)" = "moon-binstall ${expected#v}"
           moon binstall --help | grep -q 'Aliases: turtles, hotpath, dsh'
+          moon binstall --help | grep -q -- '--manifest-path FILE'
+          moon binstall --help | grep -q 'Requires: curl >= 8.4.0'
           set +e
           moon binstall turtles --nonexistent-option > "$RUNNER_TEMP/invalid-option.log" 2>&1
           status=$?
