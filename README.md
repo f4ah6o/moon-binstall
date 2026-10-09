@@ -5,6 +5,33 @@ The resolver, CLI, platform matching, filesystem operations and digest verificat
 are implemented in MoonBit (native). `curl` is used only for HTTPS transfers
 because release asset downloads involve redirects.
 
+## Install from Mooncakes
+
+Requires MoonBit, `curl`, and Linux or macOS. Install the CLI from
+[Mooncakes](https://mooncakes.io/docs/f4ah6o/moon-binstall@0.1.2):
+
+```sh
+moon install f4ah6o/moon-binstall/cmd/main@0.1.2
+mv "$HOME/.moon/bin/main" "$HOME/.moon/bin/moon-binstall"
+export PATH="$HOME/.moon/bin:$PATH"
+
+moon binstall --version
+```
+
+The executable package is `f4ah6o/moon-binstall/cmd/main`; the module root
+`f4ah6o/moon-binstall` is the library. `moon install` builds the CLI from
+Mooncakes source and installs it as `main` in `~/.moon/bin`. Rename it to
+`moon-binstall` to enable `moon binstall`. Add the `export PATH` line to your
+shell configuration if `~/.moon/bin` is not already on `PATH`.
+See the [Moon install documentation](https://moonbitlang.github.io/moon/commands.html#moon-install)
+for installation options.
+
+Then install a tool:
+
+```sh
+moon binstall turtles
+```
+
 ## Build
 
 Requires MoonBit, `curl`, and Linux or macOS:
