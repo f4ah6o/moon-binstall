@@ -23,6 +23,8 @@ jobs:
         run: moon check --target native --deny-warn
       - name: Tests
         run: moon test --target native
+      - name: Validate Mooncakes package contents
+        run: moon package --list
       - name: Build native CLI
         run: moon build --target native --release
       - name: CLI smoke

@@ -26,7 +26,7 @@ The official Moon CLI dispatches unknown subcommands to executables named
 `moon-<subcommand>` on `PATH`. Install the `moon-binstall` binary under that
 **exact filename** to enable `moon binstall` (no Moon CLI patch or shell alias).
 
-Until the first binary release is published, build and bootstrap it from source:
+To build and bootstrap from source:
 
 ```sh
 moon update
@@ -123,3 +123,32 @@ The three initial repositories did not have GitHub Releases as of
 2026-10-08. Until matching verified release assets are published,
 installation correctly reports an unavailable release/asset rather than
 pretending success.
+
+## Mooncakes
+
+This project can publish its MoonBit source module to Mooncakes as
+`f4ah6o/moon-binstall`. GitHub Releases remain the distribution channel
+for prebuilt standalone native executables.
+
+The Mooncakes registry publication is a **separate authenticated step**.
+From an authorized workstation with a Mooncakes `f4ah6o` account:
+
+```sh
+moon login
+moon update
+moon install
+moon package --list
+moon publish
+```
+
+After the versioned GitHub Release succeeds, the `Publish Mooncakes`
+GitHub Actions workflow publishes the corresponding source module using the
+`MOONCAKES_CREDENTIALS_JSON` repository secret. Store the complete contents
+of `~/.moon/credentials.json` from `moon login` in GitHub's
+Settings → Secrets and variables → Actions. Do not put credentials in
+committed files or issue comments. The workflow uses temporary credentials,
+deletes the file on completion, and supports manual retry.
+
+Publishing requires this GitHub Secret to be configured before the release
+workflow is merged. Registry publication is only complete once
+`moon publish` reports success and the Mooncakes module/version is visible.
