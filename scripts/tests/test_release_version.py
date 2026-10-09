@@ -1,52 +1,68 @@
-"""What: patch version increments, synchronized CLI constants, and fail-closed validation."""
+"""What: release only on real manifest version increases; refuse invalid versions."""
+
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from release_version import changes_for, parse_version
+from release_version import (
+    format_tag,
+    parse_version,
+    release_from_change,
+    validate_cli_version,
+)
+
 
 class ReleaseVersionTests(unittest.TestCase):
-    def test_manifest_read(self):
-        self.assertEqual(parse_version('version = "0.1.9"\n')[0], "0.1.9")
-        with self.assertRaisesRegex(ValueError, "exactly one"):
+    def test_parse_version(self):
+        self.assertEqual(parse_version('version = "0.1.9"\n'), (0, 1, 9))
+        self.assertEqual(format_tag((1, 2, 3)), "v1.2.3")
+
+    def test_reject_noncanonical_versions(self):
+        for value in ("01.2.3", "1.2.3-alpha", "latest", "1.2", "1.2.03"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_version(f'version = "{value}"\n')
+
+    def test_reject_duplicate_version(self):
+        with self.assertRaises(ValueError):
             parse_version('version = "0.1.0"\nversion = "0.2.0"\n')
 
-    def test_binstall_keeps_all_version_strings_aligned(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            (root / "moon.mod").write_text('version = "0.1.9"\n')
-            (root / "installer.mbt").write_text('println("moon-binstall 0.1.9")\n')
-            tag, changes = changes_for(root, "moon-binstall")
-            self.assertEqual(tag, "v0.1.10")
-            self.assertEqual(len(changes), 2)
-            self.assertIn('version = "0.1.10"', changes[root / "moon.mod"])
-            for content in changes.values():
-                self.assertNotIn("moon-binstall 0.1.9", content)
+    def test_changed_version_triggers_release(self):
+        self.assertEqual(
+            release_from_change('version = "0.1.0"\n', 'version = "0.2.0"\n'),
+            "v0.2.0",
+        )
 
-    def test_turtles_keeps_cli_constant_aligned(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            (root / "moon.mod").write_text('version = "0.4.0"\n')
+    def test_dependency_change_does_not_trigger_release(self):
+        self.assertEqual(
+            release_from_change('version = "0.1.0"\nimport = "a"\n',
+                                'version = "0.1.0"\nimport = "b"\n'),
+            "",
+        )
+
+    def test_version_downgrade_rejected(self):
+        with self.assertRaisesRegex(ValueError, "decreased"):
+            release_from_change('version = "0.4.0"\n', 'version = "0.3.0"\n')
+
+    def test_binstall_cli_must_match_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "installer.mbt").write_text('println("moon-binstall 0.1.0")\n')
+            validate_cli_version(root, "moon-binstall", (0, 1, 0))
+            with self.assertRaisesRegex(ValueError, "version marker"):
+                validate_cli_version(root, "moon-binstall", (0, 1, 1))
+
+    def test_turtles_cli_must_match_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
             cli = root / "cmd/turtles/config.mbt"
             cli.parent.mkdir(parents=True)
             cli.write_text('let turtles_version : String = "0.4.0"\n')
-            tag, changed = changes_for(root, "turtles")
-            self.assertEqual(tag, "v0.4.1")
-            self.assertIn('turtles_version : String = "0.4.1"', changed[cli])
+            validate_cli_version(root, "turtles", (0, 4, 0))
+            with self.assertRaisesRegex(ValueError, "version marker"):
+                validate_cli_version(root, "turtles", (0, 4, 1))
 
-    def test_failed_precondition_does_not_write_manifest(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            manifest = root / "moon.mod"
-            manifest.write_text('version = "0.1.0"\n')
-            file = root / "cmd/turtles/config.mbt"
-            file.parent.mkdir(parents=True)
-            file.write_text('let turtles_version : String = "9.9.9"\n')
-            with self.assertRaisesRegex(ValueError, "expected exactly one"):
-                changes_for(root, "turtles")
-            self.assertEqual(manifest.read_text(), 'version = "0.1.0"\n')
 
 if __name__ == "__main__":
     unittest.main()
