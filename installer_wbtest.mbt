@@ -18,6 +18,50 @@ async fn create_fixture_zip(
 }
 
 ///|
+async fn create_fixture_zip_entries(
+  archive : String,
+  entries : Array[(String, String)],
+) -> Unit {
+  let script = "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); a=sys.argv[2:]; [z.writestr(a[i],a[i+1].encode()) for i in range(0,len(a),2)]; z.close()"
+  let args : Array[String] = ["-c", script, archive]
+  for (name, content) in entries {
+    args.push(name)
+    args.push(content)
+  }
+  let result = @shell.Cmd("python3", args).output()
+  assert_eq(result.exit_code(), 0)
+}
+
+///|
+async fn create_fixture_tar_entries(
+  archive : String,
+  entries : Array[(String, String)],
+  format : String,
+) -> Unit {
+  let source = archive + ".source"
+  @fs.mkdir(source, recursive=true, allow_exist=true)
+  for (member_path, content) in entries {
+    if member_path.has_suffix("/") {
+      @fs.mkdir(
+        source + "/" + member_path, recursive=true, allow_exist=true,
+      )
+    } else {
+      let parts = member_path.split("/").collect()
+      let mut parent = source
+      for i = 0; i < parts.length() - 1; i = i + 1 {
+        parent = parent + "/" + parts[i].to_owned()
+      }
+      @fs.mkdir(parent, recursive=true, allow_exist=true)
+      @fs.write_file(source + "/" + member_path, content)
+    }
+  }
+  let plain = archive + ".plain.tar"
+  let result = @shell.Cmd("tar", ["-cf", plain, "-C", source, "."]).output()
+  assert_eq(result.exit_code(), 0)
+  compress_fixture_tar(plain, archive, format)
+}
+
+///|
 async fn create_fixture_tar(
   root : String,
   archive : String,
@@ -176,6 +220,30 @@ async fn make_registry_fixture_transport(
       (cli_url, cli_archive),
       (worker_url, worker_archive),
     ],
+  }
+}
+
+///|
+async fn make_target_override_transport(root : String) -> FixtureTransport {
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}\",\"pkg-fmt\":\"tgz\",\"overrides\":{\"linux-x86_64\":{\"pkg-url\":\"{ repo }/releases/download/v{ version }/{ bin }-{ target }-{ target-family }{ archive-suffix }\",\"pkg-fmt\":\"tgz\",\"bin-path\":\"missing/{bin}\"},\"darwin-aarch64\":{\"pkg-url\":\"{ repo }/releases/download/v{ version }/{ bin }-{ os-name }-{ target-arch }{ archive-suffix }\",\"pkg-fmt\":\"zip\"}}}]}"
+  let source_zip = root + "/target-override-source.zip"
+  create_module_manifest_zip(source_zip, manifest)
+  let source_digest = fixture_digest(source_zip)
+  let archive = root + "/darwin-cli.zip"
+  create_fixture_zip_entries(archive, [
+    ("toolkit-darwin-aarch64-v1.2.3/cli", "discovered cli\n"),
+  ])
+  let digest = fixture_digest(archive)
+  let asset_name = "cli-macos-aarch64.zip"
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let metadata_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
+  let source_url = "https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip"
+  let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
+  let release_url = "https://api.github.com/repos/acme/tools/releases/tags/v1.2.3"
+  let release = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  {
+    responses: [(metadata_url, metadata), (release_url, release)],
+    files: [(source_url, source_zip), (asset_url, archive)],
   }
 }
 
@@ -563,6 +631,162 @@ async test "ZIP member with unspecified Unix type bits remains a regular file" {
     @utf8.decode(read_artifact_binary(archive, "zip", Some("bin/fixture"))),
     "unknown mode",
   )
+}
+
+///|
+async test "archive member discovery prefers root then finds standard release directories" {
+  let root = @fs.tmpdir(prefix="moon-binstall-member-discovery")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let candidates = default_archive_member_candidates(
+    "toolkit", "cmd/cli", "cli", "1.2.3", "linux-x86_64",
+  )
+  let root_and_nested = root + "/root-and-nested.zip"
+  create_fixture_zip_entries(root_and_nested, [
+    ("toolkit-linux-x86_64-v1.2.3/cli", "nested binary"),
+    ("cli", "root binary"),
+  ])
+  assert_eq(
+    @utf8.decode(
+      read_artifact_binary_from_candidates(
+        root_and_nested, "zip", candidates,
+      ),
+    ),
+    "root binary",
+  )
+
+  let nested_only = root + "/nested-only.zip"
+  create_fixture_zip_entries(nested_only, [
+    ("toolkit-linux-x86_64-v1.2.3/cli", "nested binary"),
+  ])
+  assert_eq(
+    @utf8.decode(
+      read_artifact_binary_from_candidates(nested_only, "zip", candidates),
+    ),
+    "nested binary",
+  )
+  let nested_tar = root + "/nested-release-directory.tgz"
+  create_fixture_tar_format(
+    root + "/nested-tar-source",
+    nested_tar,
+    "nested tar binary",
+    "toolkit-linux-x86_64-v1.2.3/cli",
+    "tgz",
+  )
+  assert_eq(
+    @utf8.decode(
+      read_artifact_binary_from_candidates(nested_tar, "tgz", candidates),
+    ),
+    "nested tar binary",
+  )
+  let empty_member = root + "/empty-member.zip"
+  create_fixture_zip(empty_member, "cli", "")
+  assert_true(
+    try {
+      ignore(read_artifact_binary_from_candidates(empty_member, "zip", candidates))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_true(
+    try {
+      ignore(read_artifact_binary(nested_only, "zip", Some("cli")))
+      false
+    } catch {
+      _ => true
+    },
+  )
+
+  let unsafe_unrelated = root + "/unsafe-unrelated.zip"
+  create_fixture_zip_entries(unsafe_unrelated, [
+    ("../escape", "unsafe"),
+    ("cli", "would otherwise match"),
+  ])
+  assert_true(
+    try {
+      ignore(
+        read_artifact_binary_from_candidates(
+          unsafe_unrelated, "zip", candidates,
+        ),
+      )
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let option_like = root + "/option-like-unrelated.zip"
+  create_fixture_zip_entries(option_like, [("-x", "unsafe"), ("cli", "safe")])
+  assert_true(
+    try {
+      ignore(
+        read_artifact_binary_from_candidates(option_like, "zip", candidates),
+      )
+      false
+    } catch {
+      _ => true
+    },
+  )
+}
+
+///|
+async test "archive discovery skips exact matching directories but explicit paths reject them" {
+  let root = @fs.tmpdir(prefix="moon-binstall-matching-directory")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let target = "linux-x86_64"
+  let release_dir = "tool-\{target}-v1.2.3"
+  let candidates = default_archive_member_candidates(
+    "tool", "cmd/main", "tool", "1.2.3", target,
+  )
+  for format in ["zip", "tgz"] {
+    let suffix = if format == "zip" { ".zip" } else { ".tgz" }
+    let root_priority = root + "/root-priority-\{format}" + suffix
+    let root_entries = [
+      ("tool", "root binary"),
+      (release_dir + "/", ""),
+      (release_dir + "/tool", "nested release binary"),
+    ]
+    if format == "zip" {
+      create_fixture_zip_entries(root_priority, root_entries)
+    } else {
+      create_fixture_tar_entries(root_priority, root_entries, format)
+    }
+    assert_eq(
+      @utf8.decode(
+        read_artifact_binary_from_candidates(
+          root_priority, format, candidates,
+        ),
+      ),
+      "root binary",
+    )
+
+    let directory_match = root + "/directory-match-\{format}" + suffix
+    let directory_entries = [
+      ("tool/", ""),
+      ("tool/tool", "module directory binary"),
+      (release_dir + "/", ""),
+      (release_dir + "/tool", "release directory binary"),
+    ]
+    if format == "zip" {
+      create_fixture_zip_entries(directory_match, directory_entries)
+    } else {
+      create_fixture_tar_entries(directory_match, directory_entries, format)
+    }
+    assert_eq(
+      @utf8.decode(
+        read_artifact_binary_from_candidates(
+          directory_match, format, candidates,
+        ),
+      ),
+      "release directory binary",
+    )
+    let explicit_error = try {
+      ignore(read_artifact_binary(directory_match, format, Some("tool")))
+      ""
+    } catch {
+      error => error.to_string()
+    }
+    assert_true(explicit_error.contains("requested archive member is a directory"))
+  }
 }
 
 ///|
@@ -957,4 +1181,229 @@ async test "local manifest skips Mooncakes lookup and force replaces a regular b
   @fs.write_file(root + "/installed/cli", "old-cli\n")
   install_many_using(options, Fixture(transport))
   assert_eq(@fs.read_file(root + "/installed/cli").text(), "cli-fixture\n")
+}
+
+///|
+async test "ordered target overrides select matching URL format and member path" {
+  let manifest = "{\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"pkg-url\":\"{repo}/releases/download/v{version}/base-{target}{archive-suffix}\",\"pkg-fmt\":\"tgz\",\"bin-path\":\"base/{target}/{bin}\",\"overrides\":{\"linux-x86_64\":{\"pkg-url\":\"{ repo }/releases/download/v{ version }/linux-{ target }{ archive-suffix }\",\"pkg-fmt\":\"tgz\",\"bin-path\":\"linux/{target}/{bin}\"},\"darwin-aarch64\":{\"pkg-url\":\"{ repo }/releases/download/v{ version }/darwin-{ target }{ archive-suffix }\",\"pkg-fmt\":\"zip\",\"bin-path\":\"darwin/{target}/{bin}\"}}}]}"
+  let config_set = match parse_artifact_config_set(manifest, "cmd/cli", "cli") {
+    Some(value) => value
+    None => fail("expected package config")
+  }
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3", "--targets", "linux-x86_64,darwin-aarch64",
+  ])
+  let asset_name = "darwin-darwin-aarch64.zip"
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  let plan = resolve_asset_plan_for_release(
+    payload,
+    "acme",
+    "tools",
+    "cli",
+    "toolkit",
+    "cmd/cli",
+    "1.2.3",
+    "linux-x86_64",
+    Some(config_set),
+    options,
+  )
+  assert_eq(plan.install.asset.name, asset_name)
+  assert_eq(plan.install.format, "zip")
+  assert_eq(plan.install.bin_path, Some("darwin/darwin-aarch64/cli"))
+  assert_true(!plan.discover_archive_member)
+}
+
+///|
+async test "CLI artifact options override target metadata and explicit path never discovers" {
+  let root = @fs.tmpdir(prefix="moon-binstall-cli-metadata-precedence")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let manifest = "{\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"pkg-url\":\"{repo}/releases/download/v{version}/base-{target}{archive-suffix}\",\"pkg-fmt\":\"tgz\",\"bin-path\":\"base/{target}/{bin}\",\"overrides\":{\"linux-x86_64\":{\"pkg-url\":\"{repo}/releases/download/v{version}/override-{target}{archive-suffix}\",\"pkg-fmt\":\"tgz\",\"bin-path\":\"override/{target}/{bin}\"}}}]}"
+  let config_set = match parse_artifact_config_set(manifest, "cmd/cli", "cli") {
+    Some(value) => value
+    None => fail("expected package config")
+  }
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3",
+    "--target",
+    "linux-x86_64",
+    "--pkg-url",
+    "{ repo }/releases/download/v{ version }/cli-{ target }-{ archive-format }.zip",
+    "--pkg-fmt",
+    "zip",
+    "--bin-path",
+    "exact/{ target }/{ bin }",
+  ])
+  let archive = root + "/cli.zip"
+  create_fixture_zip(archive, "cli", "root fallback must not be used")
+  let digest = fixture_digest(archive)
+  let asset_name = "cli-linux-x86_64-zip.zip"
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  let plan = resolve_asset_plan_for_release(
+    payload,
+    "acme",
+    "tools",
+    "cli",
+    "toolkit",
+    "cmd/cli",
+    "1.2.3",
+    "linux-x86_64",
+    Some(config_set),
+    options,
+  )
+  assert_eq(plan.install.asset.name, asset_name)
+  assert_eq(plan.install.format, "zip")
+  assert_eq(plan.install.bin_path, Some("exact/linux-x86_64/cli"))
+  assert_true(!plan.discover_archive_member)
+  let output_dir = root + "/installed"
+  let workspace = root + "/workspace"
+  @fs.mkdir(output_dir)
+  @fs.mkdir(workspace)
+  let error = try {
+    ignore(
+      stage_install(
+        plan,
+        output_dir,
+        workspace,
+        0,
+        true,
+        Fixture({ responses: [], files: [(asset_url, archive)], }),
+      ),
+    )
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(
+    error.contains(
+      "archive does not contain requested binary: exact/linux-x86_64/cli",
+    ),
+  )
+  assert_eq(@fs.readdir(output_dir, include_hidden=true).length(), 0)
+  assert_eq(
+    @fs.readdir(workspace, include_hidden=true).contains("asset-0"),
+    true,
+  )
+}
+
+///|
+test "CLI URL override does not mask an invalid declared target URL" {
+  let manifest = "{\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}\",\"pkg-fmt\":\"bin\",\"overrides\":{\"darwin-aarch64\":{\"pkg-url\":\"https://evil.example/releases/download/v{version}/cli\"}}}]}"
+  let config_set = match parse_artifact_config_set(manifest, "cmd/cli", "cli") {
+    Some(value) => value
+    None => fail("expected package config")
+  }
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3",
+    "--target",
+    "linux-x86_64",
+    "--pkg-url",
+    "{repo}/releases/download/v{version}/{bin}-{target}",
+    "--pkg-fmt",
+    "bin",
+  ])
+  let asset_name = "cli-linux-x86_64"
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  let error = try {
+    ignore(
+      resolve_asset_plan_for_release(
+        payload,
+        "acme",
+        "tools",
+        "cli",
+        "toolkit",
+        "cmd/cli",
+        "1.2.3",
+        "linux-x86_64",
+        Some(config_set),
+        options,
+      ),
+    )
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("pkg-url must resolve to a GitHub release asset"))
+}
+
+///|
+async test "Mooncakes target fallback uses whitespace metadata and discovers nested archive binary" {
+  let root = @fs.tmpdir(prefix="moon-binstall-target-override-discovery")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let output = root + "/installed"
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3",
+    "--targets",
+    "linux-x86_64,darwin-aarch64",
+    "--bin-dir",
+    output,
+  ])
+  let transport = make_target_override_transport(root)
+  install_many_using(options, Fixture(transport))
+  assert_eq(@fs.read_file(output + "/cli").text(), "discovered cli\n")
+  assert_true(@fs.can_execute(output + "/cli"))
+  assert_eq(@fs.readdir(output, include_hidden=true).length(), 1)
+}
+
+///|
+async test "second archive discovery failure preserves both forced destinations" {
+  let root = @fs.tmpdir(prefix="moon-binstall-discovery-batch-failure")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/first\",\"binary\":\"first\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}\",\"pkg-fmt\":\"zip\"},{\"package\":\"cmd/second\",\"binary\":\"second\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}\",\"pkg-fmt\":\"zip\"}]}"
+  let source_zip = root + "/discovery-module.zip"
+  create_module_manifest_zip(source_zip, manifest)
+  let source_digest = fixture_digest(source_zip)
+  let first_archive = root + "/first.zip"
+  create_fixture_zip_entries(first_archive, [
+    ("toolkit-linux-x86_64-v1.2.3/first", "new first\n"),
+  ])
+  let second_archive = root + "/second.zip"
+  create_fixture_zip(second_archive, "unrelated", "no executable member")
+  let first_digest = fixture_digest(first_archive)
+  let second_digest = fixture_digest(second_archive)
+  let first_name = "first-linux-x86_64.zip"
+  let second_name = "second-linux-x86_64.zip"
+  let first_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + first_name
+  let second_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + second_name
+  let source_url = "https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip"
+  let metadata_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
+  let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
+  let release_url = "https://api.github.com/repos/acme/tools/releases/tags/v1.2.3"
+  let release = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{first_name}\",\"browser_download_url\":\"\{first_url}\",\"digest\":\"\{first_digest}\"},{\"name\":\"\{second_name}\",\"browser_download_url\":\"\{second_url}\",\"digest\":\"\{second_digest}\"}]}"
+  let transport = FixtureTransport::{
+    responses: [(metadata_url, metadata), (release_url, release)],
+    files: [
+      (source_url, source_zip),
+      (first_url, first_archive),
+      (second_url, second_archive),
+    ],
+  }
+  let output = root + "/installed"
+  @fs.mkdir(output)
+  @fs.write_file(output + "/first", "old first\n")
+  @fs.write_file(output + "/second", "old second\n")
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/first@1.2.3",
+    "acme/toolkit/cmd/second@1.2.3",
+    "--bin-dir",
+    output,
+    "--target",
+    "linux-x86_64",
+    "--force",
+  ])
+  assert_true(
+    try {
+      install_many_using(options, Fixture(transport))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_eq(@fs.read_file(output + "/first").text(), "old first\n")
+  assert_eq(@fs.read_file(output + "/second").text(), "old second\n")
+  assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
 }

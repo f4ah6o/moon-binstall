@@ -44,7 +44,7 @@ pub fn usage() -> String {
     #|                        or darwin-aarch64
     #|  --targets TARGETS     try comma-separated targets in the given order
     #|  --bin-dir DIR         destination directory (default $HOME/.local/bin)
-    #|  --bin-path PATH       executable path inside an archive
+    #|  --bin-path PATH       exact member inside an archive (default: discover)
     #|  --pkg-url TEMPLATE    release asset URL template
     #|  --pkg-fmt FORMAT      bin, tar, tgz, tar.gz, tbz2, tar.bz2, txz,
     #|                        tar.xz, tzstd, tar.zst, or zip
@@ -456,6 +456,15 @@ pub struct ResolvedInstall {
 }
 
 ///|
+/// Internal staging context keeps public ResolvedInstall unchanged while
+/// carrying safe default member candidates for archive packages.
+priv struct ResolvedInstallPlan {
+  install : ResolvedInstall
+  archive_candidates : Array[String]
+  discover_archive_member : Bool
+}
+
+///|
 /// Private transport seam for deterministic tests. Production entry points
 /// always use HTTPS; fixtures can only be supplied by same-package tests.
 #warnings("-struct_never_constructed")
@@ -523,6 +532,7 @@ async fn download_using(
 }
 
 ///|
+#warnings("-unused_value")
 fn resolve_asset_for_release(
   payload : String,
   owner : String,
@@ -535,6 +545,29 @@ fn resolve_asset_for_release(
   config : ArtifactConfig?,
   options : BatchOptions,
 ) -> ResolvedInstall raise {
+  let config_set = match config {
+    Some(value) => Some({ base: value, overrides: [] })
+    None => None
+  }
+  resolve_asset_plan_for_release(
+    payload, owner, repo, binary, module_name, package_path, version_value,
+    target, config_set, options,
+  ).install
+}
+
+///|
+fn resolve_asset_plan_for_release(
+  payload : String,
+  owner : String,
+  repo : String,
+  binary : String,
+  module_name : String,
+  package_path : String,
+  version_value : String,
+  target : String,
+  config_set : ArtifactConfigSet?,
+  options : BatchOptions,
+) -> ResolvedInstallPlan raise {
   let tag = release_tag(payload)
   let target_candidates = match options.target {
     Some(value) => parse_target_list(value)
@@ -543,32 +576,46 @@ fn resolve_asset_for_release(
       [target]
     }
   }
-  let selected_template = match options.pkg_url {
-    Some(value) => Some(value)
-    None =>
-      match config {
-        Some(item) => item.pkg_url
-        None => None
-      }
+  match config_set {
+    Some(config) =>
+      validate_artifact_config_set_for_release(
+        config, owner, repo, module_name, package_path, binary,
+        version_value, tag, options.pkg_fmt,
+      )
+    None => ()
   }
-  let requested_format = match options.pkg_fmt {
-    Some(value) => Some(value)
-    None =>
-      match config {
-        Some(item) => item.pkg_fmt
-        None => None
-      }
-  }
-  let format_hint = match requested_format {
-    Some(value) => value
-    None =>
-      match selected_template {
-        Some(template) => infer_archive_format(template)
-        None => "bin"
-      }
-  }
-  let mut selected_asset : (ReleaseAsset, String)? = None
+  let mut selected_asset : (ReleaseAsset, String, ArtifactConfig?)? = None
   for candidate_target in target_candidates {
+    // CLI options override a target-specific value, which in turn overrides
+    // the package default. Resolve this for each ordered target independently.
+    let candidate_config = match config_set {
+      Some(config) => Some(artifact_config_for_target(config, candidate_target))
+      None => None
+    }
+    let selected_template = match options.pkg_url {
+      Some(value) => Some(value)
+      None =>
+        match candidate_config {
+          Some(item) => item.pkg_url
+          None => None
+        }
+    }
+    let requested_format = match options.pkg_fmt {
+      Some(value) => Some(value)
+      None =>
+        match candidate_config {
+          Some(item) => item.pkg_fmt
+          None => None
+        }
+    }
+    let format_hint = match requested_format {
+      Some(value) => value
+      None =>
+        match selected_template {
+          Some(template) => infer_archive_format(template)
+          None => "bin"
+        }
+    }
     let names = match selected_template {
       Some(template) => {
         let suffix = archive_suffix(format_hint)
@@ -578,25 +625,45 @@ fn resolve_asset_for_release(
         )
         [artifact_url_asset_name(expanded, owner, repo, tag)]
       }
-      None =>
-        default_artifact_names_for_format(
+      None => {
+        let names = default_artifact_names_for_format(
           binary, version_value, candidate_target, requested_format,
         )
+        if module_name != binary {
+          let module_names = default_artifact_names_for_format(
+            module_name, version_value, candidate_target, requested_format,
+          )
+          for name in module_names {
+            if !names.contains(name) {
+              names.push(name)
+            }
+          }
+        }
+        names
+      }
     }
     match
       resolve_release_names_optional(
         payload, owner, repo, names, Some(tag),
       ) {
       Some(asset) => {
-        selected_asset = Some((asset, candidate_target))
+        selected_asset = Some((asset, candidate_target, candidate_config))
         break
       }
       None => ()
     }
   }
-  let (asset, matched_target) = match selected_asset {
+  let (asset, matched_target, matched_config) = match selected_asset {
     Some(value) => value
     None => fail("no matching prebuilt asset in release \{tag}")
+  }
+  let requested_format = match options.pkg_fmt {
+    Some(value) => Some(value)
+    None =>
+      match matched_config {
+        Some(item) => item.pkg_fmt
+        None => None
+      }
   }
   let format = match requested_format {
     Some(value) => value
@@ -605,18 +672,19 @@ fn resolve_asset_for_release(
   let bin_path_template = match options.bin_path {
     Some(value) => Some(value)
     None =>
-      match config {
+      match matched_config {
         Some(item) => item.bin_path
         None => None
       }
   }
+  let discover_archive_member = format != "bin" && bin_path_template is None
   let bin_path = if format == "bin" {
     None
   } else {
     Some(
       match bin_path_template {
         Some(value) =>
-          expand_artifact_template(
+          expand_artifact_member_template(
             value,
             owner,
             repo,
@@ -634,10 +702,89 @@ fn resolve_asset_for_release(
   if bin_path is Some(path) {
     validate_member_path(path)
   }
-  { asset, binary, format, bin_path, }
+  let archive_candidates = if discover_archive_member {
+    default_archive_member_candidates(
+      module_name, package_path, binary, version_value, matched_target,
+    )
+  } else {
+    []
+  }
+  {
+    install: { asset, binary, format, bin_path, },
+    archive_candidates,
+    discover_archive_member,
+  }
 }
 
 ///|
+/// Validate every declared target template against the repository and tag,
+/// even if a CLI option or an earlier target later wins selection.
+fn validate_artifact_config_set_for_release(
+  config_set : ArtifactConfigSet,
+  owner : String,
+  repo : String,
+  module_name : String,
+  package_path : String,
+  binary : String,
+  version : String,
+  tag : String,
+  cli_format : String?,
+) -> Unit raise {
+  for target in [
+    "linux-x86_64", "linux-aarch64", "darwin-x86_64", "darwin-aarch64",
+  ] {
+    let config = artifact_config_for_target(config_set, target)
+    let format_hint = match cli_format {
+      Some(value) => value
+      None =>
+        match config.pkg_fmt {
+          Some(value) => value
+          None =>
+            match config.pkg_url {
+              Some(template) => infer_archive_format(template)
+              None => "bin"
+            }
+        }
+    }
+    match config.pkg_url {
+      Some(template) => {
+        let expanded = expand_artifact_template(
+          template,
+          owner,
+          repo,
+          module_name,
+          package_path,
+          binary,
+          version,
+          target,
+          archive_suffix(format_hint),
+        )
+        ignore(artifact_url_asset_name(expanded, owner, repo, tag))
+      }
+      None => ()
+    }
+    match config.bin_path {
+      Some(template) => {
+        let expanded = expand_artifact_member_template(
+          template,
+          owner,
+          repo,
+          module_name,
+          package_path,
+          binary,
+          version,
+          target,
+          archive_suffix(format_hint),
+        )
+        validate_member_path(expanded)
+      }
+      None => ()
+    }
+  }
+}
+
+///|
+#warnings("-unused_value")
 async fn resolve_package(
   coordinate : InstallCoordinate,
   options : BatchOptions,
@@ -646,6 +793,18 @@ async fn resolve_package(
   index : Int,
   transport : Transport,
 ) -> ResolvedInstall {
+  resolve_package_plan(coordinate, options, target, workspace, index, transport).install
+}
+
+///|
+async fn resolve_package_plan(
+  coordinate : InstallCoordinate,
+  options : BatchOptions,
+  target : String,
+  workspace : String,
+  index : Int,
+  transport : Transport,
+) -> ResolvedInstallPlan {
   match coordinate {
     GitHub(pkg) => {
       let version = match options.version {
@@ -664,7 +823,7 @@ async fn resolve_package(
         _ => ()
       }
       let version_for_template = version_from_tag(tag)
-      resolve_asset_for_release(
+      resolve_asset_plan_for_release(
         payload,
         pkg.owner,
         pkg.repo,
@@ -682,7 +841,7 @@ async fn resolve_package(
         Some(path) => Some(@fs.read_file(path).text())
         None => None
       }
-      let (owner, repo, version, config) = match local_manifest {
+      let (owner, repo, version, config_set) = match local_manifest {
         Some(payload) => {
           let repository = manifest_repository(payload, pkg.module_path)
           let (owner, repo) = parse_github_repository(repository)
@@ -694,12 +853,12 @@ async fn resolve_package(
                 None => manifest_version(payload)
               }
           }
-          let config = parse_artifact_config(
+          let config_set = parse_artifact_config_set(
             payload,
             pkg.package_path,
             pkg.binary,
           )
-          (owner, repo, version, config)
+          (owner, repo, version, config_set)
         }
         None => {
           let requested_version = match options.version {
@@ -734,20 +893,20 @@ async fn resolve_package(
           let config_bytes = read_zip_member_optional_with_limit(
             source_path, "moon-binstall.json", 1048576,
           )
-          let config = match config_bytes {
+          let config_set = match config_bytes {
             Some(bytes) =>
-              parse_artifact_config(
+              parse_artifact_config_set(
                 @utf8.decode(bytes),
                 pkg.package_path,
                 pkg.binary,
               )
             None => None
           }
-          (owner, repo, Some(registry_release.version), config)
+          (owner, repo, Some(registry_release.version), config_set)
         }
       }
-      let binary = match config {
-        Some(item) => item.binary
+      let binary = match config_set {
+        Some(item) => item.base.binary
         None => pkg.binary
       }
       match version {
@@ -781,7 +940,7 @@ async fn resolve_package(
           guard actual_tag == expected_tag else {
             fail("GitHub returned tag \{actual_tag}, expected \{expected_tag}")
           }
-          resolve_asset_for_release(
+          resolve_asset_plan_for_release(
             payload,
             owner,
             repo,
@@ -790,7 +949,7 @@ async fn resolve_package(
             pkg.package_path,
             version_from_tag(actual_tag),
             target,
-            config,
+            config_set,
             options,
           )
         }
@@ -802,7 +961,7 @@ async fn resolve_package(
               fail("latest GitHub release was not found for \{pkg.module_path}")
           }
           let tag = release_tag(payload)
-          resolve_asset_for_release(
+          resolve_asset_plan_for_release(
             payload,
             owner,
             repo,
@@ -811,7 +970,7 @@ async fn resolve_package(
             pkg.package_path,
             version_from_tag(tag),
             target,
-            config,
+            config_set,
             options,
           )
         }
@@ -875,19 +1034,26 @@ async fn create_staging_directory(bin_dir : String, index : Int) -> String {
 
 ///|
 async fn stage_install(
-  item : ResolvedInstall,
+  plan : ResolvedInstallPlan,
   bin_dir : String,
   workspace : String,
   index : Int,
   force : Bool,
   transport : Transport,
 ) -> StagedInstall {
+  let item = plan.install
   let destination = bin_dir + "/" + item.binary
   check_destination(destination, force)
   let archive_path = workspace + "/asset-\{index}"
   download_using(item.asset.url, archive_path, transport)
   verify_digest(archive_path, item.asset.digest)
-  let binary = read_artifact_binary(archive_path, item.format, item.bin_path)
+  let binary = if plan.discover_archive_member {
+    read_artifact_binary_from_candidates(
+      archive_path, item.format, plan.archive_candidates,
+    )
+  } else {
+    read_artifact_binary(archive_path, item.format, item.bin_path)
+  }
   let staging_dir = create_staging_directory(bin_dir, index)
   let mut ownership_transferred = false
   defer (if !ownership_transferred {
@@ -918,10 +1084,10 @@ async fn install_many_using(
   }
   let workspace = @fs.tmpdir(prefix="moon-binstall")
   defer (@fs.rmdir(workspace, recursive=true) catch { _ => () })
-  let resolved : Array[ResolvedInstall] = []
+  let resolved : Array[ResolvedInstallPlan] = []
   let binary_names : Array[String] = []
   for i = 0; i < options.coordinates.length(); i = i + 1 {
-    let item = resolve_package(
+    let item = resolve_package_plan(
       options.coordinates[i],
       options,
       target,
@@ -931,26 +1097,27 @@ async fn install_many_using(
     )
     // Safe binary names are ASCII, so lowercase keys are portable. Apply the
     // check everywhere because default macOS filesystems are case-insensitive.
-    let binary_key = item.binary.to_lower()
+    let binary_key = item.install.binary.to_lower()
     guard !binary_names.contains(binary_key) else {
       fail(
-        "multiple packages resolve to the same executable name (case-insensitive): \{item.binary}",
+        "multiple packages resolve to the same executable name (case-insensitive): \{item.install.binary}",
       )
     }
     binary_names.push(binary_key)
     resolved.push(item)
-    println("Resolved \{item.asset.tag}: \{item.asset.name}")
+    println("Resolved \{item.install.asset.tag}: \{item.install.asset.name}")
   }
   let bin_dir = target_directory(options.directory)
   if options.dry_run {
-    for item in resolved {
+    for plan in resolved {
+      let item = plan.install
       println("Would install \{item.asset.url} -> \{bin_dir}/\{item.binary}")
     }
     return
   }
   @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
-  for item in resolved {
-    check_destination(bin_dir + "/" + item.binary, options.force)
+  for plan in resolved {
+    check_destination(bin_dir + "/" + plan.install.binary, options.force)
   }
   let staged : Array[StagedInstall] = []
   let pending : Array[Bool] = []
