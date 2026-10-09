@@ -868,10 +868,15 @@ async fn install_many_using(
       i,
       transport,
     )
-    guard !binary_names.contains(item.binary) else {
-      fail("multiple packages resolve to the same executable: \{item.binary}")
+    // Safe binary names are ASCII, so lowercase keys are portable. Apply the
+    // check everywhere because default macOS filesystems are case-insensitive.
+    let binary_key = item.binary.to_lower()
+    guard !binary_names.contains(binary_key) else {
+      fail(
+        "multiple packages resolve to the same executable name (case-insensitive): \{item.binary}",
+      )
     }
-    binary_names.push(item.binary)
+    binary_names.push(binary_key)
     resolved.push(item)
     println("Resolved \{item.asset.tag}: \{item.asset.name}")
   }

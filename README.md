@@ -149,9 +149,12 @@ each package's release asset. For example:
 }
 ```
 
-`repository` defaults to `https://github.com/{owner}/{module}` when omitted.
-Each package entry uses its MoonBit package path. Optional `binary` sets the
-installed executable name. `pkg-url` selects the asset URL template and
+For Mooncakes installs, the GitHub repository comes from `metadata.repository`
+in the registry response. `repository` in `moon-binstall.json` is used only
+with `--manifest-path FILE`; there it defaults to
+`https://github.com/{owner}/{module}` when omitted. Each package entry uses its
+MoonBit package path. Optional `binary` sets the installed executable name.
+`pkg-url` selects the asset URL template and
 `pkg-fmt` selects `bin`, `tgz`, `tar.gz` or `zip`. Archive packages default to
 the executable name as their member path; `bin-path` or the CLI's `--bin-path`
 can select a different member. `--pkg-url`, `--pkg-fmt` and `--bin-path`
@@ -176,7 +179,8 @@ asset cannot shadow a requested archive.
 `--bin-dir` continues to mean the destination directory for compatibility.
 Use `--bin-path` for a member inside an archive. `--version` applies to one
 package; use `@VERSION` on each coordinate in a batch. Multiple packages that
-resolve to the same executable name are rejected.
+resolve to executable names that differ only by ASCII case are rejected on all
+platforms (for example, `tool` and `Tool`).
 
 ## Versioned native releases
 
@@ -218,8 +222,11 @@ The destination directory must be added to `PATH`.
 No downloaded asset is executed during installation. Registry, GitHub API and
 asset transfers use HTTPS and redirects must remain HTTPS. The Mooncakes source
 ZIP checksum and selected GitHub release asset digest are checked separately.
-Before extraction, the installer rejects traversal, duplicate names, links,
-special files and option-like paths. It reads only the chosen regular member,
+Before extraction, the installer validates every archive entry, including
+unselected members and entries in the Mooncakes source ZIP. Member paths must
+use ASCII letters, digits, `.`, `_`, `-`, `+` and `/` separators, with no
+whitespace; it rejects traversal, duplicate names, links, special files and
+option-like paths. It reads only the chosen regular member,
 limits archive listings to 16 MiB and 100,000 entries, caps selected binary
 output at 128 MiB, stages files in private directories on the destination
 filesystem, and renames only after verification. Symlink and non-regular

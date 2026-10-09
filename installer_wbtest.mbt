@@ -96,6 +96,37 @@ async fn make_registry_fixture_transport(
 }
 
 ///|
+async fn make_case_collision_transport(root : String) -> FixtureTransport {
+  let source_zip = root + "/case-module-source.zip"
+  let source_manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/first\",\"binary\":\"tool\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}\",\"pkg-fmt\":\"bin\"},{\"package\":\"cmd/second\",\"binary\":\"Tool\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}\",\"pkg-fmt\":\"bin\"}]}"
+  create_module_manifest_zip(source_zip, source_manifest)
+  let source_digest = fixture_digest(source_zip)
+
+  let lower_binary = root + "/tool.bin"
+  let upper_binary = root + "/Tool.bin"
+  @fs.write_file(lower_binary, "lower-case binary\n")
+  @fs.write_file(upper_binary, "upper-case binary\n")
+  let lower_digest = fixture_digest(lower_binary)
+  let upper_digest = fixture_digest(upper_binary)
+  let lower_name = "tool-linux-x86_64"
+  let upper_name = "Tool-linux-x86_64"
+  let lower_url = "https://github.com/acme/tools/releases/download/v1.2.3/\{lower_name}"
+  let upper_url = "https://github.com/acme/tools/releases/download/v1.2.3/\{upper_name}"
+  let registry_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
+  let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
+  let release_url = "https://api.github.com/repos/acme/tools/releases/tags/v1.2.3"
+  let release = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{lower_name}\",\"browser_download_url\":\"\{lower_url}\",\"digest\":\"\{lower_digest}\"},{\"name\":\"\{upper_name}\",\"browser_download_url\":\"\{upper_url}\",\"digest\":\"\{upper_digest}\"}]}"
+  {
+    responses: [(registry_url, metadata), (release_url, release)],
+    files: [
+      ("https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip", source_zip),
+      (lower_url, lower_binary),
+      (upper_url, upper_binary),
+    ],
+  }
+}
+
+///|
 fn registry_batch_options(
   bin_dir : String,
   force : Bool,
@@ -505,6 +536,71 @@ async test "second package digest failure preserves existing files and removes o
   assert_eq(@fs.read_file(output + "/cli").text(), "previous-cli\n")
   assert_true(!@fs.exists(output + "/worker"))
   assert_eq(@fs.readdir(output, include_hidden=true).length(), 1)
+}
+
+///|
+async test "case-folded package binaries fail before writes, including with force" {
+  let root = @fs.tmpdir(prefix="moon-binstall-case-collision")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let transport = make_case_collision_transport(root)
+  let probe_options = parse_batch_options([
+    "acme/toolkit/cmd/first@1.2.3",
+    "acme/toolkit/cmd/second@1.2.3",
+    "--bin-dir",
+    root + "/probe",
+    "--target",
+    "linux-x86_64",
+  ])
+  let probe_workspace = @fs.tmpdir(prefix="moon-binstall-case-probe")
+  defer (@fs.rmdir(probe_workspace, recursive=true) catch { _ => () })
+  let first = resolve_package(
+    probe_options.coordinates[0],
+    probe_options,
+    "linux-x86_64",
+    probe_workspace,
+    0,
+    Fixture(transport),
+  )
+  let second = resolve_package(
+    probe_options.coordinates[1],
+    probe_options,
+    "linux-x86_64",
+    probe_workspace,
+    1,
+    Fixture(transport),
+  )
+  assert_eq(first.binary, "tool")
+  assert_eq(first.asset.name, "tool-linux-x86_64")
+  assert_eq(second.binary, "Tool")
+  assert_eq(second.asset.name, "Tool-linux-x86_64")
+
+  for force in [false, true] {
+    let output = root + (if force { "/force" } else { "/no-force" })
+    if force {
+      @fs.mkdir(output)
+      @fs.write_file(output + "/tool", "preserve-existing\n")
+    }
+    let args : Array[String] = [
+      "acme/toolkit/cmd/first@1.2.3", "acme/toolkit/cmd/second@1.2.3", "--bin-dir",
+      output, "--target", "linux-x86_64",
+    ]
+    if force {
+      args.push("--force")
+    }
+    let rejected = try {
+      install_many_using(parse_batch_options(args), Fixture(transport))
+      false
+    } catch {
+      _ => true
+    }
+    assert_true(rejected)
+    if force {
+      assert_eq(@fs.read_file(output + "/tool").text(), "preserve-existing\n")
+      assert_eq(@fs.readdir(output, include_hidden=true).length(), 1)
+    } else {
+      assert_true(!@fs.exists(output))
+    }
+  }
 }
 
 ///|
