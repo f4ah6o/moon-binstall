@@ -143,7 +143,13 @@ each package's release asset. For example:
       "binary": "tool",
       "pkg-url": "{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}",
       "pkg-fmt": "tgz",
-      "bin-path": "{package}/{bin}"
+      "bin-path": "{package}/{bin}",
+      "overrides": {
+        "darwin-aarch64": {
+          "pkg-url": "{ repo }/releases/download/v{ version }/{ bin }-{ target }{ archive-suffix }",
+          "pkg-fmt": "zip"
+        }
+      }
     }
   ]
 }
@@ -156,27 +162,48 @@ with `--manifest-path FILE`; there it defaults to
 MoonBit package path. Optional `binary` sets the installed executable name.
 `pkg-url` selects the asset URL template and
 `pkg-fmt` selects `bin`, `tar`, `tgz`, `tar.gz`, `tbz2`, `tar.bz2`, `txz`,
-`tar.xz`, `tzstd`, `tar.zst` or `zip`. Archive packages default to the
-executable name as their member path; `bin-path` or the CLI's `--bin-path` can
-select a different member. `--pkg-url`, `--pkg-fmt` and `--bin-path` override
-manifest values for one invocation. A local manifest can be supplied with
-`--manifest-path FILE`; this is limited to one package and skips Mooncakes
-lookup.
+`tar.xz`, `tzstd`, `tar.zst` or `zip`. For an archive without `bin-path`, the
+installer searches the archive root first, then exact executable paths under
+standard module release directories such as `module-target-vVERSION/` and
+`module/`. It validates the complete listing before reading the first matching
+member. Set `bin-path` or pass `--bin-path` to select an exact member; an
+explicit path never falls back to discovery. `--pkg-url`, `--pkg-fmt` and
+`--bin-path` override manifest values for one invocation. A local manifest can
+be supplied with `--manifest-path FILE`; this is limited to one package and
+skips Mooncakes lookup.
 
-Templates support `{repo}` (the module GitHub repository URL), `{name}` or
-`{module}` (the module's last path component), `{package}`, `{bin}` or
-`{binary}`, `{version}` (without a leading `v`), `{target}`,
-`{archive-suffix}` and `{archive-format}`. A template using
+Each package may include an `overrides` object keyed by one of the four
+supported targets. Its `pkg-url`, `pkg-fmt` and `bin-path` fields override the
+corresponding package defaults for that target; omitted fields inherit the
+package value. Ordered `--targets` resolution applies each target's own
+settings. CLI options take precedence over both levels. All declared target
+names and metadata are validated, including overrides that are not ultimately
+selected.
+
+Templates accept both `{target}` and Cargo-style whitespace such as
+`{ target }`. They support `{repo}` (the module GitHub repository URL),
+`{name}` or `{module}` (the module's last path component), `{package}`, `{bin}`
+or `{binary}`, `{version}` (without a leading `v`), `{target}`,
+`{archive-suffix}`, `{archive-format}`, and Cargo-compatible `{target-family}`,
+`{target-arch}`, `{os-name}` and `{binary-ext}`. For supported targets,
+`target-family` is `linux` or `darwin`, `target-arch` is `x86_64` or `aarch64`,
+`os-name` is `linux` or `macos`, and `binary-ext` is empty. `target-libc`,
+`target-vendor` and Cargo `cfg(...)` override expressions are unsupported
+because these target names do not identify those properties. Backslash escapes
+`\{`, `\}` and `\\` emit literal braces and a backslash. A template using
 `{archive-suffix}` should also set `pkg-fmt` or pass `--pkg-fmt`, so the suffix
-and extraction mode agree. Resolved asset URLs must remain under the exact
-GitHub repository and release tag selected by the API.
+and extraction mode agree. The deprecated `{format}` alias means
+`{archive-format}` in `pkg-url` and `{binary-ext}` in `bin-path`. Resolved asset
+URLs must remain under the exact GitHub repository and release tag selected by
+the API.
 
-By default, the resolver checks common names such as
+By default, the resolver checks common hyphenated asset names first, including
 `<binary>-<target>`, `<binary>-<target>-<version>` and
-`<binary>-<version>-<target>`, including `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`,
-`.tbz2`, `.tar.xz`, `.txz`, `.tar.zst` and `.zip` archive suffixes. Supplying
-`--pkg-fmt` restricts matching to that format, so a raw asset cannot shadow a
-requested archive.
+`<binary>-<version>-<target>`, then Cargo-style underscore variants. It checks
+the package binary name before the module name and recognizes `.tar`, `.tar.gz`,
+`.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, `.tar.zst` and `.zip` archive
+suffixes. Supplying `--pkg-fmt` restricts matching to that format, so a raw
+asset cannot shadow a requested archive.
 
 `--bin-dir` continues to mean the destination directory for compatibility.
 Use `--bin-path` for a member inside an archive. `--version` applies to one

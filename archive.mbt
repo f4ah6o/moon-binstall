@@ -60,12 +60,84 @@ pub async fn read_artifact_binary_with_limit(
 }
 
 ///|
+/// Discover an archive member from ordered, exact paths. Every archive entry
+/// is preflighted before the first candidate is accepted.
+pub async fn read_artifact_binary_from_candidates(
+  archive_path : String,
+  format : String,
+  candidates : Array[String],
+) -> Bytes {
+  read_artifact_binary_from_candidates_with_limit(
+    archive_path, format, candidates, max_installed_binary_bytes,
+  )
+}
+
+///|
+pub async fn read_artifact_binary_from_candidates_with_limit(
+  archive_path : String,
+  format : String,
+  candidates : Array[String],
+  max_binary_bytes : Int,
+) -> Bytes {
+  validate_archive_format(format)
+  guard max_binary_bytes > 0 else { fail("binary size limit must be positive") }
+  guard candidates.length() > 0 else {
+    fail("archive member discovery has no candidates")
+  }
+  let seen_candidates : Array[String] = []
+  for candidate in candidates {
+    validate_member_path(candidate)
+    guard !seen_candidates.contains(candidate) else {
+      fail("duplicate archive member discovery candidate: \{candidate}")
+    }
+    seen_candidates.push(candidate)
+  }
+  if format == "bin" {
+    return read_artifact_binary_with_limit(
+      archive_path, format, None, max_binary_bytes,
+    )
+  }
+  let bytes = match format {
+    "tar" | "tgz" | "tar.gz" | "tbz2" | "tar.bz2" | "txz" | "tar.xz" |
+    "tzstd" | "tar.zst" | "tar.zstd" =>
+      read_tar_members_optional(archive_path, candidates, max_binary_bytes, format)
+    "zip" =>
+      read_zip_members_optional_with_limit(
+        archive_path, candidates, max_binary_bytes,
+      )
+    _ => fail("unsupported archive format")
+  }
+  match bytes {
+    Some(bytes) => {
+      guard bytes.length() > 0 && bytes.length() <= max_binary_bytes else {
+        fail("archive member has an invalid size")
+      }
+      bytes
+    }
+    None => fail("archive does not contain any default binary member")
+  }
+}
+
+///|
 async fn read_tar_member(
   archive_path : String,
   wanted : String,
   max_binary_bytes : Int,
   format : String,
 ) -> Bytes {
+  match read_tar_members_optional(archive_path, [wanted], max_binary_bytes, format) {
+    Some(bytes) => bytes
+    None => fail("archive does not contain requested binary: \{wanted}")
+  }
+}
+
+///|
+async fn read_tar_members_optional(
+  archive_path : String,
+  wanted_paths : Array[String],
+  max_binary_bytes : Int,
+  format : String,
+) -> Bytes? {
   validate_tar_format_signature(archive_path, format)
   let (list_code, list_data) = run_bounded(
     "tar",
@@ -87,7 +159,10 @@ async fn read_tar_member(
     fail("tar archive has ambiguous member names")
   }
   let seen : Array[String] = []
-  let mut selected : String? = None
+  let selected : Array[String?] = []
+  for _ in wanted_paths {
+    selected.push(None)
+  }
   for i = 0; i < names.length(); i = i + 1 {
     let raw_name = names[i]
     let normalized = validate_archive_entry(raw_name)
@@ -107,7 +182,7 @@ async fn read_tar_member(
       )
     }
     if kind == 'd' {
-      if normalized == wanted {
+      if wanted_paths.contains(normalized) {
         fail("requested archive member is a directory")
       }
       continue
@@ -115,17 +190,25 @@ async fn read_tar_member(
     guard kind == '-' else {
       fail("tar archive contains a link or special file")
     }
-    if normalized == wanted {
-      guard selected is None else {
-        fail("archive contains duplicate executable members")
+    for candidate_index = 0; candidate_index < wanted_paths.length(); candidate_index = candidate_index + 1 {
+      if normalized == wanted_paths[candidate_index] {
+        guard selected[candidate_index] is None else {
+          fail("archive contains duplicate executable members")
+        }
+        selected[candidate_index] = Some(raw_name)
       }
-      selected = Some(raw_name)
     }
   }
   validate_unique_archive_paths(seen)
-  let selected_name = match selected {
+  let mut selected_name : String? = None
+  for candidate_index = 0; candidate_index < selected.length(); candidate_index = candidate_index + 1 {
+    if selected_name is None {
+      selected_name = selected[candidate_index]
+    }
+  }
+  let selected_name = match selected_name {
     Some(name) => name
-    None => fail("archive does not contain requested binary: \{wanted}")
+    None => return None
   }
   let (code, output) = run_bounded(
     "tar",
@@ -133,7 +216,7 @@ async fn read_tar_member(
     max_binary_bytes,
   )
   guard code == 0 else { fail("tar could not read the selected binary") }
-  output
+  Some(output)
 }
 
 ///|
@@ -317,7 +400,21 @@ pub async fn read_zip_member_optional_with_limit(
   wanted : String,
   max_member_bytes : Int,
 ) -> Bytes? {
+  read_zip_members_optional_with_limit(
+    archive_path, [wanted], max_member_bytes,
+  )
+}
+
+///|
+async fn read_zip_members_optional_with_limit(
+  archive_path : String,
+  wanted_paths : Array[String],
+  max_member_bytes : Int,
+) -> Bytes? {
   guard max_member_bytes > 0 else { fail("binary size limit must be positive") }
+  for wanted in wanted_paths {
+    validate_member_path(wanted)
+  }
   let (list_code, list_data) = run_bounded(
     "zipinfo",
     ["-1", archive_path],
@@ -340,7 +437,10 @@ pub async fn read_zip_member_optional_with_limit(
     fail("zip archive has ambiguous member names")
   }
   let seen : Array[String] = []
-  let mut selected : String? = None
+  let selected : Array[String?] = []
+  for _ in wanted_paths {
+    selected.push(None)
+  }
   for i = 0; i < names.length(); i = i + 1 {
     let raw_name = names[i]
     let normalized = validate_archive_entry(raw_name)
@@ -359,7 +459,7 @@ pub async fn read_zip_member_optional_with_limit(
       )
     }
     if kind == 'd' || (kind == '?' && raw_name.has_suffix("/")) {
-      if normalized == wanted {
+      if wanted_paths.contains(normalized) {
         fail("requested archive member is a directory")
       }
       continue
@@ -367,15 +467,23 @@ pub async fn read_zip_member_optional_with_limit(
     guard kind == '-' || kind == '?' else {
       fail("zip archive contains a link or special file")
     }
-    if normalized == wanted {
-      guard selected is None else {
-        fail("archive contains duplicate executable members")
+    for candidate_index = 0; candidate_index < wanted_paths.length(); candidate_index = candidate_index + 1 {
+      if normalized == wanted_paths[candidate_index] {
+        guard selected[candidate_index] is None else {
+          fail("archive contains duplicate executable members")
+        }
+        selected[candidate_index] = Some(raw_name)
       }
-      selected = Some(raw_name)
     }
   }
   validate_unique_archive_paths(seen)
-  let selected_name = match selected {
+  let mut selected_name : String? = None
+  for candidate_index = 0; candidate_index < selected.length(); candidate_index = candidate_index + 1 {
+    if selected_name is None {
+      selected_name = selected[candidate_index]
+    }
+  }
+  let selected_name = match selected_name {
     Some(name) => name
     None => return None
   }
@@ -493,8 +601,9 @@ fn validate_archive_entry(raw_name : String) -> String raise {
   }
   let parts = normalized.split("/").collect()
   for part in parts {
-    guard part != "" && part != "." && part != ".." else {
-      fail("archive contains a traversing member path")
+    guard part != "" && part != "." && part != ".." &&
+      !part.has_prefix("-") else {
+      fail("archive contains a traversing or option-like member path")
     }
     for c in part {
       guard (c >= 'a' && c <= 'z') ||
