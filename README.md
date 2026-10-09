@@ -75,33 +75,22 @@ Supported aliases:
 library in your project, use `moon add f4ah6o/hotpath` instead. The
 `hotpath-report` binary is the repository's terminal-report example.
 
-## Release from the `latest` tag
+## Versioned native releases
 
-To release a new patch version, tag the current `main` commit as `latest`
-and push the tag:
+Edit the `version` field in `moon.mod` to the intended SemVer version
+(e.g., `0.1.0` to `0.1.1`) and merge that change into `main`.
+The release workflow compares the previous and new **version values**, not
+just the file modification date. On a version increase it validates
+version consistency, builds three native platforms, then creates the
+immutable `vX.Y.Z` tag and GitHub Release for the matching commit.
+Other changes to `moon.mod` do not publish. Version downgrades fail.
 
-```sh
-git switch main
-git pull --ff-only origin main
-git tag -f latest HEAD
-git push --force origin refs/tags/latest
-```
+An explicitly pushed `vX.Y.Z` tag remains supported only when the tag
+matches `moon.mod`; the workflow never edits source versions or bumps
+versions on its own. Publishing requires successful binary builds and
+GitHub Actions permission to create a Release.
 
-The release workflow will update `moon.mod` and the CLI version (e.g.
-`0.1.0 → 0.1.1`), atomically push the version-bump commit and immutable
-`v0.1.1` tag, build/check the three native targets, and create Release
-`v0.1.1` with their binaries. The `latest` tag is only a trigger and is
-not itself a published version.
-
-It fails closed if `latest` does not refer to the current `main` commit,
-or the version tag already exists. Rerunning the same workflow after a
-successful bump reuses the existing version commit. GitHub Actions must
-have permission to push to `main` and create tags; any branch protection
-or ruleset restrictions remain effective.
-
-Manually pushed `vX.Y.Z` tags also build and release, after checking the
-tag matches `moon.mod`. No release tag is pushed automatically until
-someone explicitly pushes `latest`.
+Update the version in `installer.mbt` as well so `moon binstall --version` matches.
 
 ## Release contract
 
