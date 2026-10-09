@@ -26,7 +26,7 @@ The official Moon CLI dispatches unknown subcommands to executables named
 `moon-<subcommand>` on `PATH`. Install the `moon-binstall` binary under that
 **exact filename** to enable `moon binstall` (no Moon CLI patch or shell alias).
 
-Until the first binary release is published, build and bootstrap it from source:
+To build and bootstrap from source:
 
 ```sh
 moon update
@@ -123,3 +123,13 @@ The three initial repositories did not have GitHub Releases as of
 2026-10-08. Until matching verified release assets are published,
 installation correctly reports an unavailable release/asset rather than
 pretending success.
+
+## Mooncakes
+
+This project also publishes its MoonBit source module to Mooncakes as
+`f4ah6o/moon-binstall`. GitHub Releases remain the distribution channel
+for prebuilt standalone native executables.
+
+The Mooncakes upload uses `moon publish`, authenticated with the
+`f4ah6o` Mooncakes account. A GitHub Actions workflow validates
+`moon package --list` before any upload.
