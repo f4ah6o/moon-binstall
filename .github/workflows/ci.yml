@@ -40,7 +40,10 @@ jobs:
           expected="$(python3 scripts/release_version.py read --kind moon-binstall)"
           test "$("$binary" --version)" = "moon-binstall ${expected#v}"
           help_output="$("$binary" --help)"
-          ! grep -q 'Aliases:' <<< "$help_output"
+          if grep -q 'Aliases:' <<< "$help_output"; then
+            echo 'help unexpectedly lists package aliases' >&2
+            exit 1
+          fi
           grep -q -- '--manifest-path FILE' <<< "$help_output"
           grep -q 'Requires: curl >= 8.4.0' <<< "$help_output"
           for coordinate in turtles turtles.mbt hotpath hotpath.mbt dsh dsh.mbt; do
