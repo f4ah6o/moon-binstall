@@ -56,13 +56,11 @@ pub fn usage() -> String {
     #|  moon binstall owner/module/package[@version]... [options]
     #|  moon binstall --help
     #|
-    #|Aliases: turtles, hotpath, dsh
     #|Environment: MOON_BINSTALL_DIR (default $HOME/.local/bin)
     #|
     #|Requires: curl >= 8.4.0; tar and matching codecs for tar archives;
     #|          zstd for tzstd; unzip/zipinfo for zip; macOS or Linux.
     #|Every release asset must include GitHub's SHA-256 digest.
-    #|hotpath installs the optional hotpath-report example binary, not the library.
   msg
 }
 

@@ -31,24 +31,43 @@ jobs:
         run: moon package --list
       - name: Build native CLI
         run: moon build --target native --release
-      - name: CLI smoke
-        run: moon run cmd/main --target native -- --help
-      - name: Moon external subcommand delegation
+      - name: Native CLI smoke and Moon external subcommand delegation
         shell: bash
         run: |
           set -euo pipefail
           binary=$(find _build/native/release/build -type f -name 'main.exe' -print)
           test -n "$binary"
+          expected="$(python3 scripts/release_version.py read --kind moon-binstall)"
+          test "$("$binary" --version)" = "moon-binstall ${expected#v}"
+          help_output="$("$binary" --help)"
+          if grep -q 'Aliases:' <<< "$help_output"; then
+            echo 'help unexpectedly lists package aliases' >&2
+            exit 1
+          fi
+          grep -q -- '--manifest-path FILE' <<< "$help_output"
+          grep -q 'Requires: curl >= 8.4.0' <<< "$help_output"
+          for coordinate in turtles turtles.mbt hotpath hotpath.mbt dsh dsh.mbt; do
+            set +e
+            "$binary" "$coordinate" > "$RUNNER_TEMP/rejected-coordinate.log" 2>&1
+            status=$?
+            set -e
+            test "$status" -ne 0
+            grep -Fq 'expected owner/repo[@tag]' "$RUNNER_TEMP/rejected-coordinate.log"
+          done
+          set +e
+          "$binary" gpui-mbt/hotpath.mbt --manifest-path unused > "$RUNNER_TEMP/coordinate-option.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -Fq 'requires a Mooncakes package coordinate' "$RUNNER_TEMP/coordinate-option.log"
           mkdir -p "$RUNNER_TEMP/moon-extra-bin"
           install -m 755 "$binary" "$RUNNER_TEMP/moon-extra-bin/moon-binstall"
           export PATH="$RUNNER_TEMP/moon-extra-bin:$PATH"
-          expected="$(python3 scripts/release_version.py read --kind moon-binstall)"
           test "$(moon binstall --version)" = "moon-binstall ${expected#v}"
-          moon binstall --help | grep -q 'Aliases: turtles, hotpath, dsh'
           moon binstall --help | grep -q -- '--manifest-path FILE'
           moon binstall --help | grep -q 'Requires: curl >= 8.4.0'
           set +e
-          moon binstall turtles --nonexistent-option > "$RUNNER_TEMP/invalid-option.log" 2>&1
+          moon binstall gpui-mbt/turtles.mbt --nonexistent-option > "$RUNNER_TEMP/invalid-option.log" 2>&1
           status=$?
           set -e
           test "$status" -ne 0

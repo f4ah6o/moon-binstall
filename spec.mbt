@@ -1,5 +1,5 @@
 ///|
-/// Only explicit GitHub coordinates and the three owned aliases are accepted.
+/// Only explicit GitHub repository coordinates are accepted.
 /// No shell invocation is constructed from these values.
 pub struct Package {
   owner : String
@@ -37,34 +37,19 @@ pub fn parse_package(input : String) -> Package raise {
   } else {
     None
   }
-  let resolved = match coordinate {
-    "turtles" | "turtles.mbt" | "gpui-mbt/turtles.mbt" =>
-      ("gpui-mbt", "turtles.mbt", "turtles")
-    "hotpath" | "hotpath.mbt" | "gpui-mbt/hotpath.mbt" =>
-      ("gpui-mbt", "hotpath.mbt", "hotpath-report")
-    "dsh" | "dsh.mbt" | "f4ah6o/dsh.mbt" => ("f4ah6o", "dsh.mbt", "dsh")
-    other => {
-      let path = other.split("/").collect()
-      guard path.length() == 2 else {
-        fail("expected owner/repo[@tag]; aliases: turtles, hotpath, dsh")
-      }
-      guard valid_id(path[0].to_owned()) && valid_id(path[1].to_owned()) else {
-        fail("unsafe GitHub repository coordinate")
-      }
-      // Outside the aliases, a repo whose name ends with .mbt is treated
-      // as a generic CLI named after the repo without the .mbt suffix.
-      let name = path[1].to_owned()
-      let binary = if name.has_suffix(".mbt") {
-        name[:name.length() - 4].to_owned()
-      } else {
-        name
-      }
-      guard binary != "" else {
-        fail("repository name has an empty binary name")
-      }
-      (path[0].to_owned(), path[1].to_owned(), binary)
-    }
+  let path = coordinate.split("/").collect()
+  guard path.length() == 2 else { fail("expected owner/repo[@tag]") }
+  guard valid_id(path[0].to_owned()) && valid_id(path[1].to_owned()) else {
+    fail("unsafe GitHub repository coordinate")
   }
+  let name = path[1].to_owned()
+  let binary = if name.has_suffix(".mbt") {
+    name[:name.length() - 4].to_owned()
+  } else {
+    name
+  }
+  guard binary != "" else { fail("repository name has an empty binary name") }
+  let resolved = (path[0].to_owned(), path[1].to_owned(), binary)
   { owner: resolved.0, repo: resolved.1, binary: resolved.2, version, }
 }
 

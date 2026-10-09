@@ -30,7 +30,7 @@ for installation options.
 Then install a tool:
 
 ```sh
-moon binstall turtles
+moon binstall gpui-mbt/turtles.mbt
 ```
 
 ## Build
@@ -68,10 +68,10 @@ install -m 755 "$binary" "${MOON_HOME:-$HOME/.moon}/bin/moon-binstall"
 export PATH="${MOON_HOME:-$HOME/.moon}/bin:$PATH"
 
 moon binstall --version
-moon binstall turtles
-moon binstall hotpath
-moon binstall dsh
-moon binstall turtles@v0.4.0
+moon binstall gpui-mbt/turtles.mbt
+moon binstall gpui-mbt/hotpath.mbt
+moon binstall f4ah6o/dsh.mbt
+moon binstall gpui-mbt/turtles.mbt@v0.4.0
 ```
 
 `moon binstall` forwards arguments unchanged to `moon-binstall`. The target
@@ -82,34 +82,27 @@ does not necessarily enumerate externally discovered commands.
 ## Usage
 
 ```sh
-moon run cmd/main --target native -- turtles --dry-run
-moon run cmd/main --target native -- turtles@v0.4.0 --bin-dir "$HOME/.local/bin"
+moon run cmd/main --target native -- gpui-mbt/turtles.mbt --dry-run
+moon run cmd/main --target native -- gpui-mbt/turtles.mbt@v0.4.0 --bin-dir "$HOME/.local/bin"
 moon run cmd/main --target native -- gpui-mbt/turtles.mbt
-moon run cmd/main --target native -- hotpath
+moon run cmd/main --target native -- gpui-mbt/hotpath.mbt
 moon run cmd/main --target native -- f4ah6o/dsh.mbt
 ```
 
 Once packaged as a native executable, invoke `moon-binstall` directly.
 
-Supported aliases:
-
-| Alias | Repository | Installed executable |
-| --- | --- | --- |
-| `turtles` | [gpui-mbt/turtles.mbt](https://github.com/gpui-mbt/turtles.mbt) | `turtles` |
-| `hotpath` | [gpui-mbt/hotpath.mbt](https://github.com/gpui-mbt/hotpath.mbt) | `hotpath-report` (example executable only) |
-| `dsh` | [f4ah6o/dsh.mbt](https://github.com/f4ah6o/dsh.mbt) | `dsh` |
-
-`hotpath.mbt` is a **library**, not a native CLI; to depend on the
-library in your project, use `moon add f4ah6o/hotpath` instead. The
-`hotpath-report` binary is the repository's terminal-report example.
+GitHub installs require an explicit `owner/repo[@tag]` coordinate. The
+installed executable name comes from the repository name, with a trailing
+`.mbt` removed. For example, `gpui-mbt/hotpath.mbt` installs `hotpath`.
+Short package names such as `turtles`, `hotpath`, and `dsh` are rejected.
 
 ## Install Mooncakes packages
 
 Use `owner/module/package[@version]` to select a package inside a Mooncakes
 module. Three or more slash-separated components select Mooncakes metadata;
-the existing two-component `owner/repo[@tag]` form and the aliases above keep
-their GitHub Releases behavior. For a module with several packages, supply the
-module once with `--module` and then list package paths:
+two-component `owner/repo[@tag]` coordinates select GitHub Releases. For a
+module with several packages, supply the module once with `--module` and then
+list package paths:
 
 ```sh
 moon binstall f4ah6o/moon-binstall/cmd/main@0.1.3 \

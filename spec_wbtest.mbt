@@ -1,13 +1,14 @@
 ///|
-test "aliases and GitHub repository coordinates" {
-  let t = parse_package("turtles@v1.2.3")
+test "GitHub repository coordinates infer their binary names" {
+  let t = parse_package("gpui-mbt/turtles.mbt@v1.2.3")
   assert_eq(t.owner, "gpui-mbt")
   assert_eq(t.repo, "turtles.mbt")
   assert_eq(t.binary, "turtles")
   assert_eq(t.version, Some("v1.2.3"))
-  assert_eq(parse_package("gpui-mbt/hotpath.mbt").binary, "hotpath-report")
+  assert_eq(parse_package("gpui-mbt/hotpath.mbt").binary, "hotpath")
   assert_eq(parse_package("f4ah6o/dsh.mbt").binary, "dsh")
   assert_eq(parse_package("someuser/tool").binary, "tool")
+  assert_eq(parse_package("someuser/tool.mbt").binary, "tool")
   assert_true(
     try {
       ignore(parse_package("someuser/.mbt"))
@@ -24,6 +25,25 @@ test "aliases and GitHub repository coordinates" {
 }
 
 ///|
+test "bare package aliases are rejected with explicit coordinate guidance" {
+  for
+    name in [
+      "turtles", "turtles.mbt", "hotpath", "hotpath.mbt", "dsh", "dsh.mbt",
+    ] {
+    for input in [name, name + "@v1.2.3"] {
+      let error = try {
+        ignore(parse_package(input))
+        ""
+      } catch {
+        error => error.to_string()
+      }
+      assert_true(error.contains("expected owner/repo[@tag]"))
+      assert_true(!error.contains("aliases:"))
+    }
+  }
+}
+
+///|
 test "platform matching is explicit" {
   assert_eq(platform_key("Darwin", "arm64"), "darwin-aarch64")
   assert_eq(platform_key("Linux", "x86_64"), "linux-x86_64")
@@ -33,14 +53,14 @@ test "platform matching is explicit" {
 ///|
 test "versioned API endpoint" {
   assert_eq(
-    release_url(parse_package("turtles@v1.0.0")),
+    release_url(parse_package("gpui-mbt/turtles.mbt@v1.0.0")),
     "https://api.github.com/repos/gpui-mbt/turtles.mbt/releases/tags/v1.0.0",
   )
 }
 
 ///|
 test "release digest and repository validation" {
-  let t = parse_package("turtles")
+  let t = parse_package("gpui-mbt/turtles.mbt")
   let payload = "{\"tag_name\":\"v1.0\",\"assets\":[{\"name\":\"turtles-linux-x86_64\",\"browser_download_url\":\"https://github.com/gpui-mbt/turtles.mbt/releases/download/v1.0/turtles-linux-x86_64\",\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}"
   let asset = resolve_release(payload, t, "linux-x86_64")
   assert_eq(asset.name, "turtles-linux-x86_64")
@@ -50,7 +70,7 @@ test "release digest and repository validation" {
 ///|
 test "parse options" {
   let config = parse_options([
-    "install", "dsh", "--bin-dir", "/tmp/bin", "--dry-run",
+    "install", "f4ah6o/dsh.mbt", "--bin-dir", "/tmp/bin", "--dry-run",
   ])
   assert_eq(config.pkg.binary, "dsh")
   assert_eq(config.directory, Some("/tmp/bin"))
@@ -89,6 +109,20 @@ test "batch options preserve package versions and compatibility coordinates" {
       _ => true
     },
   )
+}
+
+///|
+test "one-component package names remain valid with --module" {
+  let options = parse_batch_options(["--module", "acme/tools", "turtles"])
+  assert_eq(options.coordinates.length(), 1)
+  match options.coordinates[0] {
+    Mooncakes(pkg) => {
+      assert_eq(pkg.module_path, "acme/tools")
+      assert_eq(pkg.package_path, "turtles")
+      assert_eq(pkg.binary, "turtles")
+    }
+    _ => fail("--module should produce Mooncakes coordinates")
+  }
 }
 
 ///|
