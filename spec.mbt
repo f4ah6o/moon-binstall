@@ -9,6 +9,22 @@ pub struct Package {
 }
 
 ///|
+/// A Mooncakes package coordinate within a versioned module.
+pub struct MooncakesPackage {
+  module_path : String
+  package_path : String
+  binary : String
+  version : String?
+}
+
+///|
+/// A source coordinate accepted by the installer.
+pub enum InstallCoordinate {
+  GitHub(Package)
+  Mooncakes(MooncakesPackage)
+}
+
+///|
 pub fn parse_package(input : String) -> Package raise {
   let parts = input.split("@").collect()
   guard parts.length() >= 1 && parts.length() <= 2 else {
@@ -26,8 +42,7 @@ pub fn parse_package(input : String) -> Package raise {
       ("gpui-mbt", "turtles.mbt", "turtles")
     "hotpath" | "hotpath.mbt" | "gpui-mbt/hotpath.mbt" =>
       ("gpui-mbt", "hotpath.mbt", "hotpath-report")
-    "dsh" | "dsh.mbt" | "f4ah6o/dsh.mbt" =>
-      ("f4ah6o", "dsh.mbt", "dsh")
+    "dsh" | "dsh.mbt" | "f4ah6o/dsh.mbt" => ("f4ah6o", "dsh.mbt", "dsh")
     other => {
       let path = other.split("/").collect()
       guard path.length() == 2 else {
@@ -44,20 +59,140 @@ pub fn parse_package(input : String) -> Package raise {
       } else {
         name
       }
+      guard binary != "" else {
+        fail("repository name has an empty binary name")
+      }
       (path[0].to_owned(), path[1].to_owned(), binary)
     }
   }
-  { owner: resolved.0, repo: resolved.1, binary: resolved.2, version }
+  { owner: resolved.0, repo: resolved.1, binary: resolved.2, version, }
+}
+
+///| Parse either the compatible GitHub coordinate or a Mooncakes package path.
+
+///| `owner/module/package` is a Mooncakes coordinate; two path segments remain
+
+///|
+/// GitHub `owner/repository` for backwards compatibility.
+pub fn parse_coordinate(input : String) -> InstallCoordinate raise {
+  let parts = input.split("@").collect()
+  guard parts.length() >= 1 && parts.length() <= 2 else {
+    fail("expected owner/repo[@tag] or owner/module/package[@version]")
+  }
+  let coordinate = parts[0].to_owned()
+  let path = coordinate.split("/").collect()
+  if path.length() < 3 {
+    return GitHub(parse_package(input))
+  }
+  let version = if parts.length() == 2 {
+    guard valid_registry_version(parts[1].to_owned()) else {
+      fail("unsafe or empty version")
+    }
+    Some(parts[1].to_owned())
+  } else {
+    None
+  }
+  guard valid_id(path[0].to_owned()) && valid_id(path[1].to_owned()) else {
+    fail("unsafe Mooncakes module coordinate")
+  }
+  let mut package_path = ""
+  for i = 2; i < path.length(); i = i + 1 {
+    guard valid_id(path[i].to_owned()) else {
+      fail("unsafe Mooncakes package path")
+    }
+    if package_path != "" {
+      package_path = package_path + "/"
+    }
+    package_path = package_path + path[i].to_owned()
+  }
+  let binary = binary_from_package_path(package_path)
+  guard binary != "" else { fail("package path has an empty binary name") }
+  Mooncakes({
+    module_path: path[0].to_owned() + "/" + path[1].to_owned(),
+    package_path,
+    binary,
+    version,
+  })
+}
+
+///|
+/// Parse a package path when the module is supplied separately with --module.
+pub fn parse_module_package(
+  module_path : String,
+  input : String,
+) -> MooncakesPackage raise {
+  let parts = input.split("@").collect()
+  guard parts.length() >= 1 && parts.length() <= 2 else {
+    fail("expected package/path[@version]")
+  }
+  let module_parts = module_path.split("/").collect()
+  guard module_parts.length() == 2 &&
+    valid_id(module_parts[0].to_owned()) &&
+    valid_id(module_parts[1].to_owned()) else {
+    fail("--module must be owner/module")
+  }
+  let version = if parts.length() == 2 {
+    guard valid_registry_version(parts[1].to_owned()) else {
+      fail("unsafe or empty version")
+    }
+    Some(parts[1].to_owned())
+  } else {
+    None
+  }
+  let package_parts = parts[0].to_owned().split("/").collect()
+  guard package_parts.length() > 0 else { fail("missing package path") }
+  for part in package_parts {
+    guard valid_id(part.to_owned()) else {
+      fail("unsafe Mooncakes package path")
+    }
+  }
+  let package_path = parts[0].to_owned()
+  let binary = binary_from_package_path(package_path)
+  guard binary != "" else { fail("package path has an empty binary name") }
+  MooncakesPackage::{ module_path, package_path, binary, version, }
+}
+
+///|
+fn binary_from_package_path(package_path : String) -> String {
+  let parts = package_path.split("/").collect()
+  let leaf = parts[parts.length() - 1].to_owned()
+  if leaf.has_suffix(".mbt") {
+    leaf[:leaf.length() - 4].to_owned()
+  } else {
+    leaf
+  }
+}
+
+///|
+fn valid_registry_version(value : String) -> Bool {
+  if value == "" || value.has_prefix(".") || value.has_suffix(".") {
+    return false
+  }
+  for c in value {
+    if !((c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '-' ||
+      c == '.' ||
+      c == '+') {
+      return false
+    }
+  }
+  true
 }
 
 ///|
 fn valid_id(value : String) -> Bool {
-  if value == "" || value == "." || value == ".." { return false }
+  if value == "" || value == "." || value == ".." {
+    return false
+  }
   for c in value {
     if !((c >= 'a' && c <= 'z') ||
-         (c >= 'A' && c <= 'Z') ||
-         (c >= '0' && c <= '9') ||
-         c == '-' || c == '_' || c == '.') {
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '-' ||
+      c == '_' ||
+      c == '.') {
       return false
     }
   }
@@ -66,7 +201,21 @@ fn valid_id(value : String) -> Bool {
 
 ///|
 fn valid_tag(value : String) -> Bool {
-  valid_id(value) && !value.has_prefix(".")
+  if value == "" || value == "." || value == ".." || value.has_prefix(".") {
+    return false
+  }
+  for c in value {
+    if !((c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '-' ||
+      c == '_' ||
+      c == '.' ||
+      c == '+') {
+      return false
+    }
+  }
+  true
 }
 
 ///|
@@ -116,35 +265,99 @@ pub fn resolve_release(
   pkg : Package,
   target : String,
 ) -> ReleaseAsset raise {
+  resolve_release_names(
+    payload,
+    pkg.owner,
+    pkg.repo,
+    [expected_asset(pkg, target)],
+    pkg.version,
+  )
+}
+
+///|
+/// Resolve an asset by name and bind its URL to the API's exact release path.
+pub fn resolve_release_names(
+  payload : String,
+  owner : String,
+  repo : String,
+  expected_names : Array[String],
+  expected_tag : String?,
+) -> ReleaseAsset raise {
   let document = @json.parse(payload)
-  guard document is {
-    "tag_name": String(tag),
-    "assets": Array(assets),
-    ..
-  } else {
+  guard document is { "tag_name": String(tag), "assets": Array(assets), .. } else {
     fail("invalid GitHub release response")
   }
-  let expected = expected_asset(pkg, target)
-  for entry in assets {
-    match entry {
-      {
-        "name": String(name),
-        "browser_download_url": String(url),
-        "digest": String(digest),
-        ..
-      } => {
-        if name != expected { continue }
-        let origin = "https://github.com/\{pkg.owner}/\{pkg.repo}/releases/download/"
-        guard url.has_prefix(origin) && url.has_suffix("/" + expected) else {
-          fail("release asset URL is not in the requested repository")
-        }
-        guard digest.has_prefix("sha256:") && digest.length() == 71 else {
-          fail("release asset has no valid SHA-256 digest")
-        }
-        return { url, digest, name, tag }
+  guard expected_names.length() > 0 else { fail("no expected release assets") }
+  match expected_tag {
+    Some(expected) =>
+      if tag != expected {
+        fail("GitHub returned tag \{tag}, expected \{expected}")
       }
-      _ => ()
+    None => ()
+  }
+  let origin = "https://github.com/\{owner}/\{repo}/releases/download/\{tag}/"
+  for expected in expected_names {
+    guard valid_asset_name(expected) else {
+      fail("unsafe expected release asset name")
+    }
+    let mut matched : ReleaseAsset? = None
+    for entry in assets {
+      match entry {
+        {
+          "name": String(name),
+          "browser_download_url": String(url),
+          "digest": String(digest),
+          ..
+        } => {
+          if name != expected {
+            continue
+          }
+          if matched is Some(_) {
+            fail("duplicate release asset name: \{name}")
+          }
+          guard valid_github_digest(digest) else {
+            fail("release asset has no valid SHA-256 digest")
+          }
+          guard url == origin + expected else {
+            fail("release asset URL is not in the requested repository")
+          }
+          matched = Some({
+            url,
+            digest: "sha256:" + digest[7:].to_owned(),
+            name,
+            tag,
+          })
+        }
+        _ => ()
+      }
+    }
+    if matched is Some(asset) {
+      return asset
     }
   }
-  fail("no prebuilt \{expected} asset in release \{tag}")
+  fail("no matching prebuilt asset in release \{tag}")
+}
+
+///|
+fn valid_asset_name(name : String) -> Bool {
+  if name == "" || name == "." || name == ".." || name.has_prefix("-") {
+    return false
+  }
+  for c in name {
+    if !((c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '-' ||
+      c == '_' ||
+      c == '.' ||
+      c == '+') {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn valid_github_digest(value : String) -> Bool {
+  value.has_prefix("sha256:") && valid_sha256_hex(value[7:].to_owned())
 }

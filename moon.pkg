@@ -1,8 +1,17 @@
 import {
+  "moonbitlang/async",
   "moonbitlang/core/json",
   "moonbitlang/async/fs",
+  "moonbitlang/async/os_error",
   "moonbitlang/async/process",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/encoding/utf8",
   "moonbitlang/x/crypto",
   "moonbitlang/core/env",
 }
+
 supported_targets = "+native"
+
+options(
+  "max-concurrent-tests": 1,
+)

@@ -7,21 +7,58 @@ pub struct Options {
 }
 
 ///|
+/// Multi-package CLI settings. The existing Options and install entry point
+/// remain available to library callers.
+pub struct BatchOptions {
+  coordinates : Array[InstallCoordinate]
+  directory : String?
+  dry_run : Bool
+  force : Bool
+  target : String?
+  version : String?
+  pkg_url : String?
+  pkg_fmt : String?
+  bin_path : String?
+  module_path : String?
+  manifest_path : String?
+}
+
+///|
 pub fn usage() -> String {
-  let msg = #|moon-binstall — install checksum-verified MoonBit binaries from GitHub Releases
-  #|
-  #|Usage:
-  #|  moon-binstall install <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
-  #|  moon-binstall <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
-  #|  moon-binstall --help
-  #|  moon binstall <owner/repo[@tag]> [--bin-dir DIR] [--force] [--dry-run]
-  #|  moon binstall --help
-  #|
-  #|Aliases: turtles, hotpath, dsh
-  #|Environment: MOON_BINSTALL_DIR (default $HOME/.local/bin)
-  #|
-  #|Requires: curl, macOS or Linux; SHA-256 digest in GitHub release metadata.
-  #|hotpath installs the optional hotpath-report example binary, not the library.
+  let msg =
+    #|moon-binstall — install checksum-verified MoonBit CLI binaries
+    #|
+    #|Usage:
+    #|  moon-binstall [--module OWNER/MODULE] <coordinate>... [options]
+    #|  moon-binstall owner/module/package[@version]... [options]
+    #|
+    #|Coordinates:
+    #|  owner/repo[@tag]                 GitHub Releases compatibility mode
+    #|  owner/module/package[@version]   Mooncakes package metadata mode
+    #|  with --module, coordinate is package/path[@version]
+    #|
+    #|Options:
+    #|  --version VERSION     select one package version (or use @VERSION per item)
+    #|  --target TARGET       override linux-x86_64, linux-aarch64, darwin-x86_64,
+    #|                        or darwin-aarch64
+    #|  --bin-dir DIR         destination directory (default $HOME/.local/bin)
+    #|  --bin-path PATH       executable path inside an archive
+    #|  --pkg-url TEMPLATE    release asset URL template
+    #|  --pkg-fmt FORMAT      bin, tgz, tar.gz, or zip
+    #|  --manifest-path FILE  read local moon-binstall.json and skip registry lookup
+    #|  --force               replace an existing regular executable
+    #|  --dry-run             resolve without installing
+    #|
+    #|  moon-binstall --help
+    #|  moon binstall owner/module/package[@version]... [options]
+    #|  moon binstall --help
+    #|
+    #|Aliases: turtles, hotpath, dsh
+    #|Environment: MOON_BINSTALL_DIR (default $HOME/.local/bin)
+    #|
+    #|Requires: curl >= 8.4.0; tar/gzip for tgz; unzip/zipinfo for zip; macOS or Linux.
+    #|Every release asset must include GitHub's SHA-256 digest.
+    #|hotpath installs the optional hotpath-report example binary, not the library.
   msg
 }
 
@@ -55,7 +92,176 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
     idx = idx + 1
   }
   guard coordinate != "" else { fail("missing repository coordinate") }
-  { pkg: parse_package(coordinate), directory, dry_run, force }
+  { pkg: parse_package(coordinate), directory, dry_run, force, }
+}
+
+///|
+pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
+  let raw_coordinates : Array[String] = []
+  let mut directory : String? = None
+  let mut target : String? = None
+  let mut version : String? = None
+  let mut pkg_url : String? = None
+  let mut pkg_fmt : String? = None
+  let mut bin_path : String? = None
+  let mut module_path : String? = None
+  let mut manifest_path : String? = None
+  let mut dry_run = false
+  let mut force = false
+  let mut seen_dry_run = false
+  let mut seen_force = false
+  let mut idx = 0
+  while idx < argv.length() {
+    let arg = argv[idx]
+    match arg {
+      "install" if idx == 0 => ()
+      "--dry-run" => {
+        guard !seen_dry_run else { fail("duplicate argument: --dry-run") }
+        dry_run = true
+        seen_dry_run = true
+      }
+      "--force" => {
+        guard !seen_force else { fail("duplicate argument: --force") }
+        force = true
+        seen_force = true
+      }
+      "--bin-dir" => {
+        idx = idx + 1
+        guard idx < argv.length() && argv[idx] != "" else {
+          fail("--bin-dir requires a directory")
+        }
+        guard directory is None else { fail("duplicate argument: --bin-dir") }
+        directory = Some(argv[idx])
+      }
+      "--target" => {
+        idx = idx + 1
+        guard idx < argv.length() else { fail("--target requires a target") }
+        guard target is None else { fail("duplicate argument: --target") }
+        target = Some(argv[idx])
+      }
+      "--version" => {
+        idx = idx + 1
+        guard idx < argv.length() else { fail("--version requires a version") }
+        guard version is None else { fail("duplicate argument: --version") }
+        version = Some(argv[idx])
+      }
+      "--pkg-url" => {
+        idx = idx + 1
+        guard idx < argv.length() else { fail("--pkg-url requires a template") }
+        guard pkg_url is None else { fail("duplicate argument: --pkg-url") }
+        pkg_url = Some(argv[idx])
+      }
+      "--pkg-fmt" => {
+        idx = idx + 1
+        guard idx < argv.length() else { fail("--pkg-fmt requires a format") }
+        guard pkg_fmt is None else { fail("duplicate argument: --pkg-fmt") }
+        validate_archive_format(argv[idx])
+        pkg_fmt = Some(argv[idx])
+      }
+      "--bin-path" => {
+        idx = idx + 1
+        guard idx < argv.length() else { fail("--bin-path requires a path") }
+        guard bin_path is None else { fail("duplicate argument: --bin-path") }
+        validate_member_path(argv[idx])
+        bin_path = Some(argv[idx])
+      }
+      "--module" => {
+        idx = idx + 1
+        guard idx < argv.length() else {
+          fail("--module requires owner/module")
+        }
+        guard module_path is None else { fail("duplicate argument: --module") }
+        let parts = argv[idx].split("/").collect()
+        guard parts.length() == 2 &&
+          valid_id(parts[0].to_owned()) &&
+          valid_id(parts[1].to_owned()) else {
+          fail("--module must be owner/module")
+        }
+        module_path = Some(argv[idx])
+      }
+      "--manifest-path" => {
+        idx = idx + 1
+        guard idx < argv.length() && argv[idx] != "" else {
+          fail("--manifest-path requires a file")
+        }
+        guard manifest_path is None else {
+          fail("duplicate argument: --manifest-path")
+        }
+        manifest_path = Some(argv[idx])
+      }
+      _ => {
+        guard !arg.has_prefix("-") else {
+          fail("unrecognized or duplicate argument: \{arg}")
+        }
+        raw_coordinates.push(arg)
+      }
+    }
+    idx = idx + 1
+  }
+  guard raw_coordinates.length() > 0 else { fail("missing package coordinate") }
+  let coordinates : Array[InstallCoordinate] = []
+  match module_path {
+    Some(module_name) =>
+      for raw in raw_coordinates {
+        coordinates.push(Mooncakes(parse_module_package(module_name, raw)))
+      }
+    None =>
+      for raw in raw_coordinates {
+        coordinates.push(parse_coordinate(raw))
+      }
+  }
+  if version is Some(_) {
+    guard coordinates.length() == 1 else {
+      fail(
+        "--version applies to one package; use @VERSION on each package in a batch",
+      )
+    }
+    match coordinates[0] {
+      GitHub(pkg) =>
+        if pkg.version is Some(_) {
+          fail("cannot combine --version with @tag")
+        }
+      Mooncakes(pkg) =>
+        if pkg.version is Some(_) {
+          fail("cannot combine --version with @version")
+        }
+    }
+  }
+  if manifest_path is Some(_) {
+    guard coordinates.length() == 1 else {
+      fail("--manifest-path can be used with one package at a time")
+    }
+    guard coordinates[0] is Mooncakes(_) else {
+      fail("--manifest-path requires a Mooncakes package coordinate")
+    }
+  }
+  match target {
+    Some(value) => validate_target(value)
+    None => ()
+  }
+  {
+    coordinates,
+    directory,
+    dry_run,
+    force,
+    target,
+    version,
+    pkg_url,
+    pkg_fmt,
+    bin_path,
+    module_path,
+    manifest_path,
+  }
+}
+
+///|
+pub fn validate_target(target : String) -> Unit raise {
+  guard target == "linux-x86_64" ||
+    target == "linux-aarch64" ||
+    target == "darwin-x86_64" ||
+    target == "darwin-aarch64" else {
+    fail("unsupported target: \{target}")
+  }
 }
 
 ///|
@@ -64,7 +270,10 @@ async fn require_platform() -> String {
   guard os_status == 0 else { fail("uname -s failed") }
   let (cpu_status, cpu_out) = @process.collect_stdout("uname", ["-m"])
   guard cpu_status == 0 else { fail("uname -m failed") }
-  platform_key(os_out.text().trim().to_owned(), cpu_out.text().trim().to_owned())
+  platform_key(
+    os_out.text().trim().to_owned(),
+    cpu_out.text().trim().to_owned(),
+  )
 }
 
 ///|
@@ -97,75 +306,686 @@ fn target_directory(dir_override : String?) -> String raise {
 /// Fail if curl refuses the transfer, rather than treating a 404 body as a
 /// binary. Keep every request HTTPS, redirect only to HTTPS, and bound time.
 async fn download(url : String, path : String) -> Unit {
+  guard url.has_prefix("https://") else {
+    fail("refusing a non-HTTPS download URL")
+  }
   let args = [
-    "--fail", "--silent", "--show-error", "--location",
-    "--proto", "=https", "--proto-redir", "=https",
-    "--max-redirs", "5",
-    "--connect-timeout", "15", "--max-time", "300",
-    "--output", path, url,
+    "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
+    "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "300",
+    "--max-filesize", "268435456", "--output", path, url,
   ]
   let status = @process.run("curl", args)
   guard status == 0 else { fail("curl download failed (exit \{status})") }
+  let size = @fs.file_size(path)
+  guard size > 0L && size <= 268435456L else {
+    fail("downloaded asset has an invalid size")
+  }
+}
+
+///|
+async fn fetch_text(url : String, accept_json : Bool) -> String? {
+  guard url.has_prefix("https://") else { fail("refusing a non-HTTPS request") }
+  let headers = if accept_json {
+    [
+      "--header", "Accept: application/vnd.github+json", "--header", "User-Agent: moon-binstall/0.1",
+    ]
+  } else {
+    ["--header", "User-Agent: moon-binstall/0.1"]
+  }
+  let args = [
+      "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
+      "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "30",
+      "--max-filesize", "16777216",
+    ] +
+    headers +
+    [url]
+  let response = @shell.Cmd("curl", args).output(
+    timeout_ms=30000,
+    max_output_bytes=16777216,
+  )
+  let code = response.exit_code()
+  if code == 22 {
+    return None
+  }
+  guard code == 0 else {
+    fail("HTTPS request failed (curl exit \{code}): \{url}")
+  }
+  Some(@utf8.decode(response.stdout_bytes()))
 }
 
 ///|
 async fn verify_digest(path : String, expected : String) -> Unit {
+  guard expected.has_prefix("sha256:") &&
+    valid_sha256_hex(expected[7:].to_owned()) else {
+    fail("release asset has no valid SHA-256 digest")
+  }
   let bytes = @fs.read_file(path).binary()
   let actual = "sha256:" + @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
-  guard actual == expected else {
+  guard actual == "sha256:" + expected[7:].to_owned().to_lower() else {
     fail("SHA-256 verification failed: expected \{expected}, got \{actual}")
   }
 }
 
 ///|
-pub async fn install(config : Options) -> Unit {
-  let target = require_platform()
-  let pkg = config.pkg
-  let api = release_url(pkg)
-  let (code, body) = @process.collect_stdout("curl", [
-    "--fail", "--silent", "--show-error", "--location",
-    "--proto", "=https", "--proto-redir", "=https",
-    "--header", "Accept: application/vnd.github+json",
-    "--header", "User-Agent: moon-binstall/0.1",
-    "--connect-timeout", "15", "--max-time", "30", api,
-  ])
-  guard code == 0 else {
-    fail("GitHub release lookup failed (curl exit \{code}): \{api}")
+fn github_release_api(
+  owner : String,
+  repo : String,
+  tag : String?,
+) -> String raise {
+  guard valid_id(owner) && valid_id(repo) else {
+    fail("unsafe GitHub repository")
   }
-  let release = resolve_release(body.text(), pkg, target)
-  let bin_dir = target_directory(config.directory)
-  let destination = bin_dir + "/" + pkg.binary
-  println("Resolved \{pkg.owner}/\{pkg.repo}@\{release.tag}: \{release.name}")
-  if config.dry_run {
-    println("Would install \{release.url} -> \{destination}")
+  let base = "https://api.github.com/repos/\{owner}/\{repo}/releases"
+  match tag {
+    Some(value) => {
+      guard valid_tag(value) else { fail("unsafe GitHub release tag") }
+      base + "/tags/" + value
+    }
+    None => base + "/latest"
+  }
+}
+
+///|
+fn release_tag(payload : String) -> String raise {
+  let document = @json.parse(payload)
+  guard document is { "tag_name": String(tag), .. } && valid_tag(tag) else {
+    fail("invalid GitHub release response")
+  }
+  tag
+}
+
+///|
+fn version_from_tag(tag : String) -> String {
+  if tag.has_prefix("v") {
+    tag[1:].to_owned()
+  } else {
+    tag
+  }
+}
+
+///|
+fn module_leaf(module_path : String) -> String {
+  let parts = module_path.split("/").collect()
+  parts[parts.length() - 1].to_owned()
+}
+
+///|
+pub struct ResolvedInstall {
+  asset : ReleaseAsset
+  binary : String
+  format : String
+  bin_path : String?
+}
+
+///|
+/// Private transport seam for deterministic tests. Production entry points
+/// always use HTTPS; fixtures can only be supplied by same-package tests.
+#warnings("-struct_never_constructed")
+priv struct FixtureTransport {
+  responses : Array[(String, String)]
+  files : Array[(String, String)]
+}
+
+///|
+#warnings("-unused_constructor")
+priv enum Transport {
+  Https
+  Fixture(FixtureTransport)
+}
+
+///|
+fn fixture_lookup(
+  entries : Array[(String, String)],
+  key : String,
+) -> String? raise {
+  let mut result : String? = None
+  for entry in entries {
+    if entry.0 == key {
+      guard result is None else {
+        fail("duplicate fixture transport key: \{key}")
+      }
+      result = Some(entry.1)
+    }
+  }
+  result
+}
+
+///|
+async fn fetch_text_using(
+  url : String,
+  accept_json : Bool,
+  transport : Transport,
+) -> String? {
+  match transport {
+    Https => fetch_text(url, accept_json)
+    Fixture(fixtures) => fixture_lookup(fixtures.responses, url)
+  }
+}
+
+///|
+async fn download_using(
+  url : String,
+  path : String,
+  transport : Transport,
+) -> Unit {
+  match transport {
+    Https => download(url, path)
+    Fixture(fixtures) => {
+      let source = match fixture_lookup(fixtures.files, url) {
+        Some(value) => value
+        None => fail("fixture transport has no asset for URL: \{url}")
+      }
+      @fs.write_file(
+        path,
+        @fs.read_file(source).binary(),
+        create_mode=CreateNew,
+      )
+    }
+  }
+}
+
+///|
+fn resolve_asset_for_release(
+  payload : String,
+  owner : String,
+  repo : String,
+  binary : String,
+  module_name : String,
+  package_path : String,
+  version_value : String,
+  target : String,
+  config : ArtifactConfig?,
+  options : BatchOptions,
+) -> ResolvedInstall raise {
+  let tag = release_tag(payload)
+  let selected_template = match options.pkg_url {
+    Some(value) => Some(value)
+    None =>
+      match config {
+        Some(item) => item.pkg_url
+        None => None
+      }
+  }
+  let requested_format = match options.pkg_fmt {
+    Some(value) => Some(value)
+    None =>
+      match config {
+        Some(item) => item.pkg_fmt
+        None => None
+      }
+  }
+  let format_hint = match requested_format {
+    Some(value) => value
+    None =>
+      match selected_template {
+        Some(template) => infer_archive_format(template)
+        None => "bin"
+      }
+  }
+  let names = match selected_template {
+    Some(template) => {
+      let suffix = archive_suffix(format_hint)
+      let expanded = expand_artifact_template(
+        template, owner, repo, module_name, package_path, binary, version_value,
+        target, suffix,
+      )
+      [artifact_url_asset_name(expanded, owner, repo, tag)]
+    }
+    None =>
+      default_artifact_names_for_format(
+        binary, version_value, target, requested_format,
+      )
+  }
+  let asset = resolve_release_names(payload, owner, repo, names, Some(tag))
+  let format = match requested_format {
+    Some(value) => value
+    None => infer_archive_format(asset.name)
+  }
+  let bin_path_template = match options.bin_path {
+    Some(value) => Some(value)
+    None =>
+      match config {
+        Some(item) => item.bin_path
+        None => None
+      }
+  }
+  let bin_path = if format == "bin" {
+    None
+  } else {
+    Some(
+      match bin_path_template {
+        Some(value) =>
+          expand_artifact_template(
+            value,
+            owner,
+            repo,
+            module_name,
+            package_path,
+            binary,
+            version_value,
+            target,
+            archive_suffix(format),
+          )
+        None => binary
+      },
+    )
+  }
+  if bin_path is Some(path) {
+    validate_member_path(path)
+  }
+  { asset, binary, format, bin_path, }
+}
+
+///|
+async fn resolve_package(
+  coordinate : InstallCoordinate,
+  options : BatchOptions,
+  target : String,
+  workspace : String,
+  index : Int,
+  transport : Transport,
+) -> ResolvedInstall {
+  match coordinate {
+    GitHub(pkg) => {
+      let version = match options.version {
+        Some(value) => Some(value)
+        None => pkg.version
+      }
+      let api = github_release_api(pkg.owner, pkg.repo, version)
+      let payload = match fetch_text_using(api, true, transport) {
+        Some(value) => value
+        None => fail("GitHub release lookup failed: \{api}")
+      }
+      let tag = release_tag(payload)
+      match version {
+        Some(expected) if tag != expected =>
+          fail("GitHub returned tag \{tag}, expected \{expected}")
+        _ => ()
+      }
+      let version_for_template = version_from_tag(tag)
+      resolve_asset_for_release(
+        payload,
+        pkg.owner,
+        pkg.repo,
+        pkg.binary,
+        pkg.repo,
+        pkg.repo,
+        version_for_template,
+        target,
+        None,
+        options,
+      )
+    }
+    Mooncakes(pkg) => {
+      let local_manifest = match options.manifest_path {
+        Some(path) => Some(@fs.read_file(path).text())
+        None => None
+      }
+      let (owner, repo, version, config) = match local_manifest {
+        Some(payload) => {
+          let repository = manifest_repository(payload, pkg.module_path)
+          let (owner, repo) = parse_github_repository(repository)
+          let version = match options.version {
+            Some(value) => Some(value)
+            None =>
+              match pkg.version {
+                Some(value) => Some(value)
+                None => manifest_version(payload)
+              }
+          }
+          let config = parse_artifact_config(
+            payload,
+            pkg.package_path,
+            pkg.binary,
+          )
+          (owner, repo, version, config)
+        }
+        None => {
+          let requested_version = match options.version {
+            Some(value) => Some(value)
+            None => pkg.version
+          }
+          let metadata_url = mooncakes_manifest_url(
+            pkg.module_path,
+            requested_version,
+          )
+          let metadata_payload = match
+            fetch_text_using(metadata_url, false, transport) {
+            Some(value) => value
+            None =>
+              fail("Mooncakes module release was not found: \{metadata_url}")
+          }
+          let registry_release = resolve_registry_release(
+            metadata_payload,
+            pkg.module_path,
+            requested_version,
+          )
+          let (owner, repo) = parse_github_repository(
+            registry_release.repository,
+          )
+          let source_path = workspace + "/module-\{index}.zip"
+          download_using(
+            mooncakes_source_url(pkg.module_path, registry_release.version),
+            source_path,
+            transport,
+          )
+          verify_sha256_hex(source_path, registry_release.checksum)
+          let config_bytes = read_zip_member_optional_with_limit(
+            source_path, "moon-binstall.json", 1048576,
+          )
+          let config = match config_bytes {
+            Some(bytes) =>
+              parse_artifact_config(
+                @utf8.decode(bytes),
+                pkg.package_path,
+                pkg.binary,
+              )
+            None => None
+          }
+          (owner, repo, Some(registry_release.version), config)
+        }
+      }
+      let binary = match config {
+        Some(item) => item.binary
+        None => pkg.binary
+      }
+      match version {
+        Some(value) => {
+          let preferred = if value.has_prefix("v") {
+            value
+          } else {
+            "v" + value
+          }
+          let preferred_url = github_release_api(owner, repo, Some(preferred))
+          let (payload, expected_tag) = match
+            fetch_text_using(preferred_url, true, transport) {
+            Some(payload) => (payload, preferred)
+            None => {
+              if preferred == value {
+                fail(
+                  "GitHub release was not found for \{pkg.module_path}@\{value}",
+                )
+              }
+              let fallback_url = github_release_api(owner, repo, Some(value))
+              match fetch_text_using(fallback_url, true, transport) {
+                Some(payload) => (payload, value)
+                None =>
+                  fail(
+                    "GitHub release was not found for \{pkg.module_path}@\{value}",
+                  )
+              }
+            }
+          }
+          let actual_tag = release_tag(payload)
+          guard actual_tag == expected_tag else {
+            fail("GitHub returned tag \{actual_tag}, expected \{expected_tag}")
+          }
+          resolve_asset_for_release(
+            payload,
+            owner,
+            repo,
+            binary,
+            module_leaf(pkg.module_path),
+            pkg.package_path,
+            version_from_tag(actual_tag),
+            target,
+            config,
+            options,
+          )
+        }
+        None => {
+          let api = github_release_api(owner, repo, None)
+          let payload = match fetch_text_using(api, true, transport) {
+            Some(value) => value
+            None =>
+              fail("latest GitHub release was not found for \{pkg.module_path}")
+          }
+          let tag = release_tag(payload)
+          resolve_asset_for_release(
+            payload,
+            owner,
+            repo,
+            binary,
+            module_leaf(pkg.module_path),
+            pkg.package_path,
+            version_from_tag(tag),
+            target,
+            config,
+            options,
+          )
+        }
+      }
+    }
+  }
+}
+
+///|
+async fn path_kind_no_follow(path : String) -> @fs.FileKind? {
+  Some(@fs.kind(path, follow_symlink=false)) catch {
+    @os_error.OSError(_) as err if err.is_ENOENT() => None
+    err => raise err
+  }
+}
+
+///|
+async fn check_destination(path : String, force : Bool) -> Unit {
+  match path_kind_no_follow(path) {
+    Some(Regular) if force => ()
+    Some(Regular) => fail("already exists: \{path} (use --force to replace)")
+    Some(_) => fail("refusing to replace a non-regular file: \{path}")
+    None => ()
+  }
+}
+
+///|
+pub struct StagedInstall {
+  destination : String
+  staging : String
+  staging_dir : String
+}
+
+///|
+/// Create an exclusive private directory beside the destination. Renaming
+/// from this directory stays on the destination filesystem and never shares
+/// staging paths between concurrent invocations.
+async fn create_staging_directory_at(
+  bin_dir : String,
+  index : Int,
+  stamp : String,
+) -> String {
+  let mut attempt = 0
+  while attempt < 10000 {
+    let path = bin_dir + "/.moon-binstall-stage-\{stamp}-\{index}-\{attempt}"
+    try {
+      @fs.mkdir(path, permission=0o700, allow_exist=false)
+      return path
+    } catch {
+      @os_error.OSError(_) as err if err.is_EEXIST() => attempt = attempt + 1
+      err => raise err
+    }
+  }
+  fail("could not allocate a private staging directory")
+}
+
+///|
+async fn create_staging_directory(bin_dir : String, index : Int) -> String {
+  create_staging_directory_at(bin_dir, index, @async.now().to_string())
+}
+
+///|
+async fn stage_install(
+  item : ResolvedInstall,
+  bin_dir : String,
+  workspace : String,
+  index : Int,
+  force : Bool,
+  transport : Transport,
+) -> StagedInstall {
+  let destination = bin_dir + "/" + item.binary
+  check_destination(destination, force)
+  let archive_path = workspace + "/asset-\{index}"
+  download_using(item.asset.url, archive_path, transport)
+  verify_digest(archive_path, item.asset.digest)
+  let binary = read_artifact_binary(archive_path, item.format, item.bin_path)
+  let staging_dir = create_staging_directory(bin_dir, index)
+  let mut ownership_transferred = false
+  defer (if !ownership_transferred {
+    @fs.rmdir(staging_dir, recursive=true) catch {
+      _ => ()
+    }
+  })
+  let staging = staging_dir + "/" + item.binary
+  @fs.write_file(staging, binary, create_mode=CreateNew, permission=0o600)
+  @fs.chmod(staging, 0o755)
+  ownership_transferred = true
+  { destination, staging, staging_dir, }
+}
+
+///|
+pub async fn install_many(options : BatchOptions) -> Unit {
+  install_many_using(options, Https)
+}
+
+///|
+async fn install_many_using(
+  options : BatchOptions,
+  transport : Transport,
+) -> Unit {
+  let target = match options.target {
+    Some(value) => value
+    None => require_platform()
+  }
+  let workspace = @fs.tmpdir(prefix="moon-binstall")
+  defer (@fs.rmdir(workspace, recursive=true) catch { _ => () })
+  let resolved : Array[ResolvedInstall] = []
+  let binary_names : Array[String] = []
+  for i = 0; i < options.coordinates.length(); i = i + 1 {
+    let item = resolve_package(
+      options.coordinates[i],
+      options,
+      target,
+      workspace,
+      i,
+      transport,
+    )
+    // Safe binary names are ASCII, so lowercase keys are portable. Apply the
+    // check everywhere because default macOS filesystems are case-insensitive.
+    let binary_key = item.binary.to_lower()
+    guard !binary_names.contains(binary_key) else {
+      fail(
+        "multiple packages resolve to the same executable name (case-insensitive): \{item.binary}",
+      )
+    }
+    binary_names.push(binary_key)
+    resolved.push(item)
+    println("Resolved \{item.asset.tag}: \{item.asset.name}")
+  }
+  let bin_dir = target_directory(options.directory)
+  if options.dry_run {
+    for item in resolved {
+      println("Would install \{item.asset.url} -> \{bin_dir}/\{item.binary}")
+    }
     return
   }
   @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
-  guard !@fs.exists(destination) || config.force else {
-    fail("already exists: \{destination} (use --force to replace)")
+  for item in resolved {
+    check_destination(bin_dir + "/" + item.binary, options.force)
   }
-  // Avoid redirecting writes through a symlink, even with --force.
-  if @fs.exists(destination) {
-    guard @fs.kind(destination, follow_symlink=false) is Regular else {
-      fail("refusing to replace a non-regular file: \{destination}")
+  let staged : Array[StagedInstall] = []
+  let pending : Array[Bool] = []
+  defer (for i = 0; i < staged.length(); i = i + 1 {
+    if pending[i] {
+      @fs.remove(staged[i].staging) catch {
+        _ => ()
+      }
+      @fs.rmdir(staged[i].staging_dir, recursive=true) catch {
+        _ => ()
+      }
     }
+  })
+  for i = 0; i < resolved.length(); i = i + 1 {
+    let item = stage_install(
+      resolved[i],
+      bin_dir,
+      workspace,
+      i,
+      options.force,
+      transport,
+    )
+    staged.push(item)
+    pending.push(true)
   }
-  let staging = bin_dir + "/.\{pkg.binary}.moon-binstall.part"
-  guard !@fs.exists(staging) else {
-    fail("staging file exists (concurrent or interrupted install): \{staging}")
+  for i = 0; i < staged.length(); i = i + 1 {
+    let item = staged[i]
+    @fs.rename(item.staging, item.destination, replace=options.force)
+    pending[i] = false
+    @fs.rmdir(item.staging_dir, recursive=true) catch {
+      _ => ()
+    }
+    println("Installed \{item.destination}")
   }
-  defer (@fs.remove(staging) catch { _ => () })
-  download(release.url, staging)
-  verify_digest(staging, release.digest)
+}
+
+///|
+pub async fn install(config : Options) -> Unit {
+  install_many({
+    coordinates: [GitHub(config.pkg)],
+    directory: config.directory,
+    dry_run: config.dry_run,
+    force: config.force,
+    target: None,
+    version: None,
+    pkg_url: None,
+    pkg_fmt: None,
+    bin_path: None,
+    module_path: None,
+    manifest_path: None,
+  })
+}
+
+///|
+pub async fn install_from_asset_file(
+  asset_path : String,
+  digest : String,
+  format : String,
+  bin_path : String?,
+  binary : String,
+  bin_dir : String,
+  force : Bool,
+) -> Unit {
+  guard safe_binary_name(binary) else { fail("unsafe executable name") }
+  guard bin_dir.has_prefix("/") else {
+    fail("--bin-dir must be an absolute path")
+  }
+  @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
+  let destination = bin_dir + "/" + binary
+  check_destination(destination, force)
+  verify_digest(asset_path, digest)
+  let content = read_artifact_binary(asset_path, format, bin_path)
+  let staging_dir = create_staging_directory(bin_dir, 0)
+  let mut owns_directory = true
+  defer (if owns_directory {
+    @fs.rmdir(staging_dir, recursive=true) catch {
+      _ => ()
+    }
+  })
+  let staging = staging_dir + "/" + binary
+  @fs.write_file(staging, content, create_mode=CreateNew, permission=0o600)
   @fs.chmod(staging, 0o755)
-  @fs.rename(staging, destination, replace=config.force)
-  println("Installed \{destination}")
+  @fs.rename(staging, destination, replace=force)
+  owns_directory = false
+  @fs.rmdir(staging_dir, recursive=true) catch {
+    _ => ()
+  }
 }
 
 ///|
 pub async fn execute(argv : ArrayView[String]) -> Int {
-  if argv.length() == 0 || (argv.length() == 1 &&
-    (argv[0] == "--help" || argv[0] == "-h" || argv[0] == "help")) {
+  if argv.length() == 0 ||
+    (
+      argv.length() == 1 &&
+      (argv[0] == "--help" || argv[0] == "-h" || argv[0] == "help")
+    ) {
     println(usage())
     return 0
   }
@@ -173,7 +993,7 @@ pub async fn execute(argv : ArrayView[String]) -> Int {
     println("moon-binstall 0.1.2")
     return 0
   }
-  let config = parse_options(argv)
-  install(config)
+  let config = parse_batch_options(argv)
+  install_many(config)
   0
 }
