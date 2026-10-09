@@ -126,10 +126,21 @@ pretending success.
 
 ## Mooncakes
 
-This project also publishes its MoonBit source module to Mooncakes as
+This project can publish its MoonBit source module to Mooncakes as
 `f4ah6o/moon-binstall`. GitHub Releases remain the distribution channel
 for prebuilt standalone native executables.
 
-The Mooncakes upload uses `moon publish`, authenticated with the
-`f4ah6o` Mooncakes account. A GitHub Actions workflow validates
-`moon package --list` before any upload.
+The Mooncakes registry publication is a **separate authenticated step**.
+From an authorized workstation with a Mooncakes `f4ah6o` account:
+
+```sh
+moon login
+moon update
+moon install
+moon package --list
+moon publish
+```
+
+The GitHub CI verifies package contents but does not publish or store
+Mooncakes credentials. The registry publication must be confirmed separately
+before the new version is considered fully released.
