@@ -141,6 +141,14 @@ moon package --list
 moon publish
 ```
 
-The GitHub CI verifies package contents but does not publish or store
-Mooncakes credentials. The registry publication must be confirmed separately
-before the new version is considered fully released.
+After the versioned GitHub Release succeeds, the `Publish Mooncakes`
+GitHub Actions workflow publishes the corresponding source module using the
+`MOONCAKES_CREDENTIALS_JSON` repository secret. Store the complete contents
+of `~/.moon/credentials.json` from `moon login` in GitHub's
+Settings → Secrets and variables → Actions. Do not put credentials in
+committed files or issue comments. The workflow uses temporary credentials,
+deletes the file on completion, and supports manual retry.
+
+Publishing requires this GitHub Secret to be configured before the release
+workflow is merged. Registry publication is only complete once
+`moon publish` reports success and the Mooncakes module/version is visible.
