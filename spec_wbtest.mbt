@@ -245,6 +245,53 @@ test "artifact templates accept Cargo whitespace and supported target facts" {
 }
 
 ///|
+test "artifact template scanners handle long literals and padded placeholders" {
+  let literal_builder = StringBuilder(size_hint=65536)
+  for i = 0; i < 32768; i = i + 1 {
+    literal_builder.write_char('x')
+  }
+  let literal = literal_builder.to_string()
+  let template = literal + "{ target }" + literal
+  validate_artifact_template(template)
+  let expanded = expand_artifact_template(
+    template,
+    "acme",
+    "tools",
+    "toolkit",
+    "cmd/cli",
+    "cli",
+    "1.2.3",
+    "linux-x86_64",
+    "",
+  )
+  assert_true(expanded.has_prefix(literal))
+  assert_true(expanded.has_suffix(literal))
+  assert_eq(expanded.length(), literal.length() * 2 + "linux-x86_64".length())
+
+  let whitespace_builder = StringBuilder(size_hint=32768)
+  for i = 0; i < 16384; i = i + 1 {
+    whitespace_builder.write_char(' ')
+  }
+  let whitespace = whitespace_builder.to_string()
+  let padded_variable = "{" + whitespace + " target " + whitespace + "}"
+  validate_artifact_template(padded_variable)
+  assert_eq(
+    expand_artifact_template(
+      padded_variable,
+      "acme",
+      "tools",
+      "toolkit",
+      "cmd/cli",
+      "cli",
+      "1.2.3",
+      "linux-x86_64",
+      "",
+    ),
+    "linux-x86_64",
+  )
+}
+
+///|
 test "artifact target overrides merge fields without changing package defaults" {
   let payload = "{\"packages\":[{\"package\":\"cmd/main\",\"binary\":\"tool\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}\",\"pkg-fmt\":\"tgz\",\"bin-path\":\"{package}/{bin}\",\"overrides\":{\"darwin-aarch64\":{\"pkg-fmt\":\"zip\",\"bin-path\":\"release/{target}/{bin}\"},\"linux-aarch64\":{\"pkg-url\":\"{ repo }/releases/download/v{ version }/{ bin }-{ target }{ archive-suffix }\",\"pkg-fmt\":\"tar.gz\"}}}]}"
   let config_set = match parse_artifact_config_set(payload, "cmd/main", "main") {

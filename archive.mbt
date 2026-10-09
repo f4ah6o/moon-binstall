@@ -100,10 +100,14 @@ pub async fn read_artifact_binary_from_candidates_with_limit(
   let bytes = match format {
     "tar" | "tgz" | "tar.gz" | "tbz2" | "tar.bz2" | "txz" | "tar.xz" |
     "tzstd" | "tar.zst" | "tar.zstd" =>
-      read_tar_members_optional(archive_path, candidates, max_binary_bytes, format)
+      read_tar_members_optional(
+        archive_path, candidates, max_binary_bytes, format,
+        allow_matching_directories=true,
+      )
     "zip" =>
       read_zip_members_optional_with_limit(
         archive_path, candidates, max_binary_bytes,
+        allow_matching_directories=true,
       )
     _ => fail("unsupported archive format")
   }
@@ -125,18 +129,25 @@ async fn read_tar_member(
   max_binary_bytes : Int,
   format : String,
 ) -> Bytes {
-  match read_tar_members_optional(archive_path, [wanted], max_binary_bytes, format) {
+  match
+    read_tar_members_optional(
+      archive_path, [wanted], max_binary_bytes, format,
+      allow_matching_directories=false,
+    ) {
     Some(bytes) => bytes
     None => fail("archive does not contain requested binary: \{wanted}")
   }
 }
 
 ///|
+/// Discovery may skip a candidate that names a directory and continue to a
+/// later executable path; exact member reads keep rejecting that directory.
 async fn read_tar_members_optional(
   archive_path : String,
   wanted_paths : Array[String],
   max_binary_bytes : Int,
   format : String,
+  allow_matching_directories~ : Bool,
 ) -> Bytes? {
   validate_tar_format_signature(archive_path, format)
   let (list_code, list_data) = run_bounded(
@@ -182,7 +193,7 @@ async fn read_tar_members_optional(
       )
     }
     if kind == 'd' {
-      if wanted_paths.contains(normalized) {
+      if wanted_paths.contains(normalized) && !allow_matching_directories {
         fail("requested archive member is a directory")
       }
       continue
@@ -402,14 +413,18 @@ pub async fn read_zip_member_optional_with_limit(
 ) -> Bytes? {
   read_zip_members_optional_with_limit(
     archive_path, [wanted], max_member_bytes,
+    allow_matching_directories=false,
   )
 }
 
 ///|
+/// Discovery may skip a candidate that names a directory and continue to a
+/// later executable path; exact member reads keep rejecting that directory.
 async fn read_zip_members_optional_with_limit(
   archive_path : String,
   wanted_paths : Array[String],
   max_member_bytes : Int,
+  allow_matching_directories~ : Bool,
 ) -> Bytes? {
   guard max_member_bytes > 0 else { fail("binary size limit must be positive") }
   for wanted in wanted_paths {
@@ -459,7 +474,7 @@ async fn read_zip_members_optional_with_limit(
       )
     }
     if kind == 'd' || (kind == '?' && raw_name.has_suffix("/")) {
-      if wanted_paths.contains(normalized) {
+      if wanted_paths.contains(normalized) && !allow_matching_directories {
         fail("requested archive member is a directory")
       }
       continue

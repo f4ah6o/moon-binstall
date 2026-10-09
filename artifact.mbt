@@ -395,18 +395,18 @@ pub fn validate_artifact_template(template : String) -> Unit raise {
     }
     if current == '{' {
       index = index + 1
-      let mut variable = ""
+      let variable = StringBuilder()
       while index < chars.length() && chars[index] != '}' {
         guard chars[index] != '{' else {
           fail("nested opening brace in artifact template")
         }
-        variable = variable + chars[index].to_string()
+        variable.write_char(chars[index])
         index = index + 1
       }
       guard index < chars.length() else {
         fail("unclosed variable in artifact template")
       }
-      let key = variable.trim().to_owned()
+      let key = variable.to_string().trim().to_owned()
       guard known.contains(key) else {
         fail("unsupported variable in artifact template: \{key}")
       }
@@ -429,32 +429,32 @@ fn expand_template(
   for c in template {
     chars.push(c)
   }
-  let mut result = ""
+  let result = StringBuilder(size_hint=template.length())
   let mut index = 0
   while index < chars.length() {
     let current = chars[index]
     if current == '\\' && index + 1 < chars.length() {
       let next = chars[index + 1]
       if next == '{' || next == '}' || next == '\\' {
-        result = result + next.to_string()
+        result.write_char(next)
         index = index + 2
         continue
       }
     }
     if current == '{' {
       index = index + 1
-      let mut variable = ""
+      let variable = StringBuilder()
       while index < chars.length() && chars[index] != '}' {
         guard chars[index] != '{' else {
           fail("nested opening brace in artifact template")
         }
-        variable = variable + chars[index].to_string()
+        variable.write_char(chars[index])
         index = index + 1
       }
       guard index < chars.length() else {
         fail("unclosed variable in artifact template")
       }
-      let key = variable.trim().to_owned()
+      let key = variable.to_string().trim().to_owned()
       let mut resolved : String? = None
       for (name, value) in values {
         let candidate = if name.has_prefix("{") {
@@ -471,17 +471,17 @@ fn expand_template(
         Some(value) => value
         None => fail("unsupported variable in artifact template: \{key}")
       }
-      result = result + value
+      result.write_string(value)
       index = index + 1
       continue
     }
     if current == '}' {
       fail("unmatched closing brace in artifact template")
     }
-    result = result + current.to_string()
+    result.write_char(current)
     index = index + 1
   }
-  result
+  result.to_string()
 }
 
 ///|

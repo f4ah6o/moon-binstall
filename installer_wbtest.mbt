@@ -33,6 +33,35 @@ async fn create_fixture_zip_entries(
 }
 
 ///|
+async fn create_fixture_tar_entries(
+  archive : String,
+  entries : Array[(String, String)],
+  format : String,
+) -> Unit {
+  let source = archive + ".source"
+  @fs.mkdir(source, recursive=true, allow_exist=true)
+  for (member_path, content) in entries {
+    if member_path.has_suffix("/") {
+      @fs.mkdir(
+        source + "/" + member_path, recursive=true, allow_exist=true,
+      )
+    } else {
+      let parts = member_path.split("/").collect()
+      let mut parent = source
+      for i = 0; i < parts.length() - 1; i = i + 1 {
+        parent = parent + "/" + parts[i].to_owned()
+      }
+      @fs.mkdir(parent, recursive=true, allow_exist=true)
+      @fs.write_file(source + "/" + member_path, content)
+    }
+  }
+  let plain = archive + ".plain.tar"
+  let result = @shell.Cmd("tar", ["-cf", plain, "-C", source, "."]).output()
+  assert_eq(result.exit_code(), 0)
+  compress_fixture_tar(plain, archive, format)
+}
+
+///|
 async fn create_fixture_tar(
   root : String,
   archive : String,
@@ -700,6 +729,67 @@ async test "archive member discovery prefers root then finds standard release di
 }
 
 ///|
+async test "archive discovery skips exact matching directories but explicit paths reject them" {
+  let root = @fs.tmpdir(prefix="moon-binstall-matching-directory")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let target = "linux-x86_64"
+  let release_dir = "tool-\{target}-v1.2.3"
+  let candidates = default_archive_member_candidates(
+    "tool", "cmd/main", "tool", "1.2.3", target,
+  )
+  for format in ["zip", "tgz"] {
+    let suffix = if format == "zip" { ".zip" } else { ".tgz" }
+    let root_priority = root + "/root-priority-\{format}" + suffix
+    let root_entries = [
+      ("tool", "root binary"),
+      (release_dir + "/", ""),
+      (release_dir + "/tool", "nested release binary"),
+    ]
+    if format == "zip" {
+      create_fixture_zip_entries(root_priority, root_entries)
+    } else {
+      create_fixture_tar_entries(root_priority, root_entries, format)
+    }
+    assert_eq(
+      @utf8.decode(
+        read_artifact_binary_from_candidates(
+          root_priority, format, candidates,
+        ),
+      ),
+      "root binary",
+    )
+
+    let directory_match = root + "/directory-match-\{format}" + suffix
+    let directory_entries = [
+      ("tool/", ""),
+      ("tool/tool", "module directory binary"),
+      (release_dir + "/", ""),
+      (release_dir + "/tool", "release directory binary"),
+    ]
+    if format == "zip" {
+      create_fixture_zip_entries(directory_match, directory_entries)
+    } else {
+      create_fixture_tar_entries(directory_match, directory_entries, format)
+    }
+    assert_eq(
+      @utf8.decode(
+        read_artifact_binary_from_candidates(
+          directory_match, format, candidates,
+        ),
+      ),
+      "release directory binary",
+    )
+    let explicit_error = try {
+      ignore(read_artifact_binary(directory_match, format, Some("tool")))
+      ""
+    } catch {
+      error => error.to_string()
+    }
+    assert_true(explicit_error.contains("requested archive member is a directory"))
+  }
+}
+
+///|
 test "archive duplicate path validation sorts before checking neighbors" {
   let duplicate = try {
     validate_unique_archive_paths(["z", "a", "m", "a"])
@@ -1169,25 +1259,33 @@ async test "CLI artifact options override target metadata and explicit path neve
   assert_true(!plan.discover_archive_member)
   let output_dir = root + "/installed"
   let workspace = root + "/workspace"
+  @fs.mkdir(output_dir)
   @fs.mkdir(workspace)
+  let error = try {
+    ignore(
+      stage_install(
+        plan,
+        output_dir,
+        workspace,
+        0,
+        true,
+        Fixture({ responses: [], files: [(asset_url, archive)], }),
+      ),
+    )
+    ""
+  } catch {
+    error => error.to_string()
+  }
   assert_true(
-    try {
-      ignore(
-        stage_install(
-          plan,
-          output_dir,
-          workspace,
-          0,
-          true,
-          Fixture({ responses: [], files: [(asset_url, archive)], }),
-        ),
-      )
-      false
-    } catch {
-      _ => true
-    },
+    error.contains(
+      "archive does not contain requested binary: exact/linux-x86_64/cli",
+    ),
   )
-  assert_true(!@fs.exists(output_dir))
+  assert_eq(@fs.readdir(output_dir, include_hidden=true).length(), 0)
+  assert_eq(
+    @fs.readdir(workspace, include_hidden=true).contains("asset-0"),
+    true,
+  )
 }
 
 ///|
@@ -1206,27 +1304,30 @@ test "CLI URL override does not mask an invalid declared target URL" {
     "--pkg-fmt",
     "bin",
   ])
-  assert_true(
-    try {
-      ignore(
-        resolve_asset_plan_for_release(
-          "{\"tag_name\":\"v1.2.3\",\"assets\":[]}",
-          "acme",
-          "tools",
-          "cli",
-          "toolkit",
-          "cmd/cli",
-          "1.2.3",
-          "linux-x86_64",
-          Some(config_set),
-          options,
-        ),
-      )
-      false
-    } catch {
-      _ => true
-    },
-  )
+  let asset_name = "cli-linux-x86_64"
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  let error = try {
+    ignore(
+      resolve_asset_plan_for_release(
+        payload,
+        "acme",
+        "tools",
+        "cli",
+        "toolkit",
+        "cmd/cli",
+        "1.2.3",
+        "linux-x86_64",
+        Some(config_set),
+        options,
+      ),
+    )
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("pkg-url must resolve to a GitHub release asset"))
 }
 
 ///|
