@@ -71,15 +71,15 @@ jobs:
           moon update
           moon install
       - name: Build
-        run: moon build cmd/main --target native --release
+        run: moon build --target native --release
       - name: Prepare raw executable
         shell: bash
         run: |
           set -euo pipefail
-          binaries=$(find _build/native/release/build -type f -name 'main.exe' -print)
+          binaries=$(find _build/native/release/build -maxdepth 1 -type f -name 'moon-binstall.exe' -print)
           count=$(printf '%s\n' "$binaries" | grep -c . || true)
           if [ "$count" -ne 1 ]; then
-            printf 'Expected exactly one main.exe, got %s\n' "$count" >&2
+            printf 'Expected exactly one moon-binstall.exe, got %s\n' "$count" >&2
             exit 1
           fi
           mkdir -p release

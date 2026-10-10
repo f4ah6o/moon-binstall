@@ -16,6 +16,32 @@
 
 ### Migration
 
+## 0.1.5 - 2026-10-10
+
+### Added
+
+### Changed
+
+- The module root package `f4ah6o/moon-binstall` is now the executable, so
+  `moon install f4ah6o/moon-binstall` installs `moon-binstall` directly with
+  no `/cmd/main` suffix or rename step. `f4ah6o/moon-binstall/cmd/main` remains
+  available and installs the same binary as `main`.
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
+### Security
+
+### Migration
+
+- `moon install f4ah6o/moon-binstall` now installs `~/.moon/bin/moon-binstall`
+  directly. The previous `mv ~/.moon/bin/main ~/.moon/bin/moon-binstall` step is
+  no longer needed; installing via `f4ah6o/moon-binstall/cmd/main` still
+  requires it.
+
 ## 0.1.4 - 2026-10-09
 
 ### Added

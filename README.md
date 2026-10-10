@@ -9,21 +9,20 @@ involve redirects.
 ## Install from Mooncakes
 
 Requires MoonBit, `curl`, and Linux or macOS. Install the CLI from
-[Mooncakes](https://mooncakes.io/docs/f4ah6o/moon-binstall@0.1.4):
+[Mooncakes](https://mooncakes.io/docs/f4ah6o/moon-binstall@0.1.5):
 
 ```sh
-moon install f4ah6o/moon-binstall/cmd/main@0.1.4
-mv "$HOME/.moon/bin/main" "$HOME/.moon/bin/moon-binstall"
+moon install f4ah6o/moon-binstall@0.1.5
 export PATH="$HOME/.moon/bin:$PATH"
 
 moon binstall --version
 ```
 
-The executable package is `f4ah6o/moon-binstall/cmd/main`; the module root
-`f4ah6o/moon-binstall` is the library. `moon install` builds the CLI from
-Mooncakes source and installs it as `main` in `~/.moon/bin`. Rename it to
-`moon-binstall` to enable `moon binstall`. Add the `export PATH` line to your
-shell configuration if `~/.moon/bin` is not already on `PATH`.
+The module root package `f4ah6o/moon-binstall` is the executable. `moon install`
+builds the CLI from Mooncakes source and installs it directly as `moon-binstall`
+in `~/.moon/bin`, which enables `moon binstall` with no rename step. Add the
+`export PATH` line to your shell configuration if `~/.moon/bin` is not already
+on `PATH`.
 See the [Moon install documentation](https://moonbitlang.github.io/moon/commands.html#moon-install)
 for installation options.
 
@@ -42,10 +41,10 @@ moon update
 moon install
 moon test --target native
 moon build --release --target native
-moon run cmd/main --target native -- --help
+moon run . --target native -- --help
 ```
 
-The generated executable is `_build/native/release/build/cmd/main/main.exe`
+The generated executable is `_build/native/release/build/moon-binstall.exe`
 (the exact output path can vary with toolchain versions).
 
 ## Use as a `moon` subcommand
@@ -59,10 +58,10 @@ To build and bootstrap from source:
 ```sh
 moon update
 moon install
-moon build cmd/main --target native --release
+moon build --target native --release
 
 mkdir -p "${MOON_HOME:-$HOME/.moon}/bin"
-binary=$(find _build/native/release/build -type f -name main.exe -print)
+binary=$(find _build/native/release/build -type f -name moon-binstall.exe -print)
 test -n "$binary"
 install -m 755 "$binary" "${MOON_HOME:-$HOME/.moon}/bin/moon-binstall"
 export PATH="${MOON_HOME:-$HOME/.moon}/bin:$PATH"
@@ -82,11 +81,11 @@ does not necessarily enumerate externally discovered commands.
 ## Usage
 
 ```sh
-moon run cmd/main --target native -- gpui-mbt/turtles.mbt --dry-run
-moon run cmd/main --target native -- gpui-mbt/turtles.mbt@v0.4.0 --bin-dir "$HOME/.local/bin"
-moon run cmd/main --target native -- gpui-mbt/turtles.mbt
-moon run cmd/main --target native -- gpui-mbt/hotpath.mbt
-moon run cmd/main --target native -- f4ah6o/dsh.mbt
+moon run . --target native -- gpui-mbt/turtles.mbt --dry-run
+moon run . --target native -- gpui-mbt/turtles.mbt@v0.4.0 --bin-dir "$HOME/.local/bin"
+moon run . --target native -- gpui-mbt/turtles.mbt
+moon run . --target native -- gpui-mbt/hotpath.mbt
+moon run . --target native -- f4ah6o/dsh.mbt
 ```
 
 Once packaged as a native executable, invoke `moon-binstall` directly.
@@ -283,10 +282,11 @@ and external asset hosts. The resolver accepts exactly
 is not supported. This repository publishes release binaries for Linux
 x86_64, Linux aarch64 and macOS aarch64.
 
-The repository's own `moon-binstall.json` maps MoonBit package `cmd/main` to
+The repository's own `moon-binstall.json` maps the `cmd/main` package path to
 the `moon-binstall` executable and the raw release asset naming convention.
-This lets a published Mooncakes source version use the same release contract
-without command-line asset overrides.
+The executable now lives at the module root, so `cmd/main` no longer exists as a
+real package; the entry is kept so the Mooncakes coordinate
+`f4ah6o/moon-binstall/cmd/main` keeps resolving to the same release binary.
 
 ## Mooncakes
 
