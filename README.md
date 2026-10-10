@@ -241,7 +241,11 @@ By default the latest non-prerelease GitHub Release is used. Specify
 `--force` replaces an existing **regular file** after verification, and
 `--bin-dir` or `MOON_BINSTALL_DIR` overrides `$HOME/.local/bin`. Install batches
 are fully downloaded and verified before the first destination is replaced.
-The destination directory must be added to `PATH`.
+Before a staged binary is moved into place it is checked for runtime
+compatibility: a Linux ELF binary for the host architecture whose `ldd`
+reports unresolved libraries (such as a newer glibc) aborts the install with
+a hint to build from source instead. Pass `--skip-compat-check` to install
+anyway. The destination directory must be added to `PATH`.
 
 ## Security
 

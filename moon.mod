@@ -1,5 +1,5 @@
 name = "f4ah6o/moon-binstall"
-version = "0.1.5"
+version = "0.1.6"
 readme = "README.md"
 repository = "https://github.com/f4ah6o/moon-binstall"
 license = "Apache-2.0"
