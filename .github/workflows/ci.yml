@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          binary=$(find _build/native/release/build -type f -name 'main.exe' -print)
+          binary=$(find _build/native/release/build -maxdepth 1 -type f -name 'moon-binstall.exe' -print)
           test -n "$binary"
           expected="$(python3 scripts/release_version.py read --kind moon-binstall)"
           test "$("$binary" --version)" = "moon-binstall ${expected#v}"
