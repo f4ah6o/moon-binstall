@@ -16,6 +16,19 @@
 
 ### Migration
 
+## 0.1.6 - 2026-10-10
+
+### Added
+
+- A compatibility check runs on each staged binary before it is moved into
+  place: a Linux ELF binary matching the host architecture whose `ldd`
+  reports unresolved libraries (for example a newer glibc than the host
+  provides) aborts the install with a hint to build from source. Other
+  formats and foreign architectures are skipped, and `--skip-compat-check`
+  opts out.
+
+### Changed
+
 ## 0.1.5 - 2026-10-10
 
 ### Added

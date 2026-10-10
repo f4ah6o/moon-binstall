@@ -4,6 +4,7 @@ pub struct Options {
   directory : String?
   dry_run : Bool
   force : Bool
+  skip_compat_check : Bool
 }
 
 ///|
@@ -14,6 +15,7 @@ pub struct BatchOptions {
   directory : String?
   dry_run : Bool
   force : Bool
+  skip_compat_check : Bool
   /// One target or an ordered comma-separated list produced by --targets.
   target : String?
   version : String?
@@ -51,6 +53,7 @@ pub fn usage() -> String {
     #|  --manifest-path FILE  read local moon-binstall.json and skip registry lookup
     #|  --force               replace an existing regular executable
     #|  --dry-run             resolve without installing
+    #|  --skip-compat-check   install even if the binary cannot run here
     #|
     #|  moon-binstall --help
     #|  moon binstall owner/module/package[@version]... [options]
@@ -70,6 +73,7 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
   let mut directory : String? = None
   let mut dry_run = false
   let mut force = false
+  let mut skip_compat_check = false
   let mut idx = 0
   while idx < argv.length() {
     let arg = argv[idx]
@@ -77,6 +81,7 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
       "install" if idx == 0 => ()
       "--dry-run" => dry_run = true
       "--force" => force = true
+      "--skip-compat-check" => skip_compat_check = true
       "--bin-dir" => {
         idx = idx + 1
         guard idx < argv.length() && argv[idx] != "" else {
@@ -94,7 +99,7 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
     idx = idx + 1
   }
   guard coordinate != "" else { fail("missing repository coordinate") }
-  { pkg: parse_package(coordinate), directory, dry_run, force, }
+  { pkg: parse_package(coordinate), directory, dry_run, force, skip_compat_check, }
 }
 
 ///|
@@ -110,10 +115,12 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
   let mut manifest_path : String? = None
   let mut dry_run = false
   let mut force = false
+  let mut skip_compat_check = false
   let mut seen_target = false
   let mut seen_targets = false
   let mut seen_dry_run = false
   let mut seen_force = false
+  let mut seen_skip_compat_check = false
   let mut idx = 0
   while idx < argv.length() {
     let arg = argv[idx]
@@ -128,6 +135,13 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
         guard !seen_force else { fail("duplicate argument: --force") }
         force = true
         seen_force = true
+      }
+      "--skip-compat-check" => {
+        guard !seen_skip_compat_check else {
+          fail("duplicate argument: --skip-compat-check")
+        }
+        skip_compat_check = true
+        seen_skip_compat_check = true
       }
       "--bin-dir" => {
         idx = idx + 1
@@ -259,6 +273,7 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
     directory,
     dry_run,
     force,
+    skip_compat_check,
     target,
     version,
     pkg_url,
@@ -1026,6 +1041,76 @@ async fn create_staging_directory_at(
 }
 
 ///|
+/// Return the ELF machine type when `binary` is a little-endian ELF file,
+/// or None for other formats. e_machine sits at offset 18.
+fn elf_machine(binary : Bytes) -> Int? {
+  guard binary.length() >= 20 &&
+    binary[0].to_int() == 0x7f &&
+    binary[1] == b'E' &&
+    binary[2] == b'L' &&
+    binary[3] == b'F' &&
+    binary[5].to_int() == 1 else {
+    return None
+  }
+  Some(binary[18].to_int() | (binary[19].to_int() << 8))
+}
+
+///|
+/// Collect the `ldd` output lines that report an unresolved library, such as
+/// "libc.so.6 => not found" or "version `GLIBC_2.38' not found". Static
+/// binaries ("not a dynamic executable") produce none.
+fn unresolved_libraries(ldd_output : String) -> Array[String] {
+  let missing : Array[String] = []
+  for line in ldd_output.split("\n") {
+    if line.contains("not found") {
+      missing.push(line.trim().to_owned())
+    }
+  }
+  missing
+}
+
+///|
+/// Reject a staged binary that cannot run on this host: an ELF executable
+/// built for this architecture whose loader reports unresolved libraries
+/// (for example a newer glibc). Other formats and foreign architectures are
+/// skipped — they may be fetched on purpose for a different machine.
+async fn verify_binary_compat(
+  path : String,
+  binary : Bytes,
+  skip_compat_check : Bool,
+) -> Unit {
+  if skip_compat_check {
+    return
+  }
+  let machine = match elf_machine(binary) {
+    Some(value) => value
+    None => return
+  }
+  let (uname_status, uname_out) = @process.collect_stdout("uname", ["-m"]) catch {
+    _ => return
+  }
+  guard uname_status == 0 else { return }
+  let host_machine = match uname_out.text().trim() {
+    "x86_64" | "amd64" => 62
+    "aarch64" | "arm64" => 183
+    _ => return
+  }
+  guard machine == host_machine else { return }
+  let ldd = @shell.Cmd("ldd", [path]).output(
+    timeout_ms=15000,
+    max_output_bytes=1048576,
+  ) catch {
+    _ => return
+  }
+  let missing = unresolved_libraries(@utf8.decode(ldd.stdout_bytes()))
+  guard !missing.is_empty() else { return }
+  let name = path.split("/").last().unwrap_or(path)
+  fail(
+    "installed binary \{name} cannot run on this system: \{missing.join("; ")}. Build it from source instead, or pass --skip-compat-check to install anyway.",
+  )
+}
+
+///|
 async fn create_staging_directory(bin_dir : String, index : Int) -> String {
   create_staging_directory_at(bin_dir, index, @async.now().to_string())
 }
@@ -1037,6 +1122,7 @@ async fn stage_install(
   workspace : String,
   index : Int,
   force : Bool,
+  skip_compat_check : Bool,
   transport : Transport,
 ) -> StagedInstall {
   let item = plan.install
@@ -1062,6 +1148,7 @@ async fn stage_install(
   let staging = staging_dir + "/" + item.binary
   @fs.write_file(staging, binary, create_mode=CreateNew, permission=0o600)
   @fs.chmod(staging, 0o755)
+  verify_binary_compat(staging, binary, skip_compat_check)
   ownership_transferred = true
   { destination, staging, staging_dir, }
 }
@@ -1136,6 +1223,7 @@ async fn install_many_using(
       workspace,
       i,
       options.force,
+      options.skip_compat_check,
       transport,
     )
     staged.push(item)
@@ -1159,6 +1247,7 @@ pub async fn install(config : Options) -> Unit {
     directory: config.directory,
     dry_run: config.dry_run,
     force: config.force,
+    skip_compat_check: config.skip_compat_check,
     target: None,
     version: None,
     pkg_url: None,
@@ -1198,6 +1287,7 @@ pub async fn install_from_asset_file(
   let staging = staging_dir + "/" + binary
   @fs.write_file(staging, content, create_mode=CreateNew, permission=0o600)
   @fs.chmod(staging, 0o755)
+  verify_binary_compat(staging, content, false)
   @fs.rename(staging, destination, replace=force)
   owns_directory = false
   @fs.rmdir(staging_dir, recursive=true) catch {
@@ -1216,7 +1306,7 @@ pub async fn execute(argv : ArrayView[String]) -> Int {
     return 0
   }
   if argv.length() == 1 && argv[0] == "--version" {
-    println("moon-binstall 0.1.5")
+    println("moon-binstall 0.1.6")
     return 0
   }
   let config = parse_batch_options(argv)

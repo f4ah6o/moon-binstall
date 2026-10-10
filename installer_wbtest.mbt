@@ -325,6 +325,7 @@ async fn fixture_install(
     directory: None,
     dry_run: false,
     force: false,
+    skip_compat_check: false,
     target: Some("linux-x86_64"),
     version: None,
     pkg_url: None,
@@ -1269,6 +1270,7 @@ async test "CLI artifact options override target metadata and explicit path neve
         workspace,
         0,
         true,
+        false,
         Fixture({ responses: [], files: [(asset_url, archive)], }),
       ),
     )
@@ -1406,4 +1408,37 @@ async test "second archive discovery failure preserves both forced destinations"
   assert_eq(@fs.read_file(output + "/first").text(), "old first\n")
   assert_eq(@fs.read_file(output + "/second").text(), "old second\n")
   assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
+}
+
+///|
+test "elf_machine detects little-endian ELF binaries" {
+  let elf_x86_64 : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0,
+  ]
+  assert_eq(elf_machine(Bytes::from_array(elf_x86_64)), Some(62))
+  let elf_aarch64 : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 183, 0,
+  ]
+  assert_eq(elf_machine(Bytes::from_array(elf_aarch64)), Some(183))
+  assert_eq(elf_machine(Bytes::from_array([b'n', b'o', b't', b'E'])), None)
+  assert_eq(elf_machine(Bytes::from_array([])), None)
+  let elf_be : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0,
+  ]
+  assert_eq(elf_machine(Bytes::from_array(elf_be)), None)
+}
+
+///|
+test "unresolved_libraries reports missing shared libraries" {
+  let glibc_missing =
+    "/tmp/dsh: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found (required by /tmp/dsh)\n\tlinux-vdso.so.1 (0x00007fff)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6\n"
+  assert_eq(unresolved_libraries(glibc_missing).length(), 1)
+  assert_true(unresolved_libraries(glibc_missing)[0].contains("GLIBC_2.38"))
+  let lib_missing =
+    "\tlibfoo.so.1 => not found\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6\n"
+  assert_eq(unresolved_libraries(lib_missing), ["libfoo.so.1 => not found"])
+  let healthy =
+    "\tlinux-vdso.so.1 (0x00007fff)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6\n"
+  assert_eq(unresolved_libraries(healthy), [])
+  assert_eq(unresolved_libraries("not a dynamic executable"), [])
 }
