@@ -52,7 +52,11 @@ jobs:
           }
           umask 077
           mkdir -p "$HOME/.moon"
-          printf '%s' "$MOONCAKES_CREDENTIALS_JSON" > "$HOME/.moon/credentials.json"
+          if printf '%s' "$MOONCAKES_CREDENTIALS_JSON" | jq -e . > /dev/null 2>&1; then
+            printf '%s' "$MOONCAKES_CREDENTIALS_JSON" > "$HOME/.moon/credentials.json"
+          else
+            jq -n --arg token "$MOONCAKES_CREDENTIALS_JSON" '{token: $token}' > "$HOME/.moon/credentials.json"
+          fi
           trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
           moon update
           moon install
