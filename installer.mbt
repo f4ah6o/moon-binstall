@@ -1852,6 +1852,13 @@ async fn check_library_closure(
   lib_tokens : Array[String],
 ) -> Unit {
   let visited : Map[String, Bool] = Map([])
+  // The loader's link map: every object already loaded under a soname
+  // identity is reused for later lookups — ld.so does not search the
+  // filesystem again when a transitive DT_NEEDED names a soname that an
+  // earlier object already provided (e.g. the executable's own direct
+  // dependency). Without this a provider's narrower search context
+  // would report an already-loaded library as missing.
+  let loaded : Map[String, String] = Map([])
   // Each entry carries the DT_RPATH directories inherited from the
   // ancestor chain: legacy RPATH propagates to indirect dependencies
   // (nearest ancestor's first), unlike DT_RUNPATH.
@@ -1890,13 +1897,21 @@ async fn check_library_closure(
       if kernel_object_sonames().contains(soname) {
         continue
       }
-      match resolve_soname(soname, search_dirs, cache, dirs, host) {
+      // Reuse an object the loader already mapped under this soname
+      // before searching again — the loaded object wins even when this
+      // object's own search context could not find it.
+      let found = match loaded.get(soname) {
+        Some(found) => Some(found)
+        None => resolve_soname(soname, search_dirs, cache, dirs, host)
+      }
+      match found {
         None => missing.push(soname)
-        Some(found) => {
-          resolved[soname] = found
+        Some(path) => {
+          resolved[soname] = path
+          loaded[soname] = path
           // Existence is not enough: the loader also refuses a provider
           // that is not a host-architecture ELF shared object.
-          if !elf_file_usable(found, host) {
+          if !elf_file_usable(path, host) {
             unusable.push(soname)
           }
         }

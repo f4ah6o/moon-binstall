@@ -2355,6 +2355,45 @@ async test "verify_binary_compat inherits DT_RPATH transitively on linux" {
 }
 
 ///|
+async test "verify_binary_compat reuses an already-loaded library on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-reuse")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // main directly needs BOTH libfoo and libbar via DT_RUNPATH=$ORIGIN;
+  // libfoo itself needs libbar but carries no RUNPATH. ld.so loads libbar
+  // while handling the executable, so libfoo's lookup reuses the mapped
+  // object without searching — libfoo's narrower context is irrelevant.
+  @fs.write_file(
+    install_dir + "/libfooreuse.so.1",
+    make_test_elf64(62, 3, None, ["libbarreuse.so.1"], None, [], []),
+  )
+  @fs.write_file(
+    install_dir + "/libbarreuse.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfooreuse.so.1", "libbarreuse.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // Genuinely missing: without libbar anywhere the chain must still fail.
+  @fs.remove(install_dir + "/libbarreuse.so.1")
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libbarreuse.so.1"))
+}
+
+///|
 async test "verify_binary_compat checks transitive dependencies on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let install_dir = @fs.tmpdir(prefix="moon-binstall-transitive")
