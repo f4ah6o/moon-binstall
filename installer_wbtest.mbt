@@ -2456,6 +2456,40 @@ async test "verify_binary_compat reuses a loaded object by its DT_SONAME on linu
 }
 
 ///|
+async test "verify_binary_compat satisfies a same-list SONAME alias on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-direct-alias")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // One needed list names a file AND the SONAME that file embeds: the
+  // loader registers libbaralias.so.1 the moment libxyz.so.1 is loaded,
+  // so the second entry reuses it without any search.
+  @fs.write_file(
+    install_dir + "/libxyz.so.1",
+    make_test_elf64(
+      62,
+      3,
+      None,
+      [],
+      None,
+      [],
+      [],
+      soname=Some("libbaralias.so.1"),
+    ),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libxyz.so.1", "libbaralias.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+}
+
+///|
 async test "verify_binary_compat checks transitive dependencies on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let install_dir = @fs.tmpdir(prefix="moon-binstall-transitive")

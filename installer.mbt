@@ -1875,6 +1875,9 @@ async fn check_library_closure(
   // dependency). Without this a provider's narrower search context
   // would report an already-loaded library as missing.
   let loaded : Map[String, String] = Map([])
+  // Parsed .dynamic data for each resolved file, filled on first read
+  // so providers are never opened twice during the walk.
+  let parsed : Map[String, ElfDeps] = Map([])
   // Each entry carries the DT_RPATH directories inherited from the
   // ancestor chain: legacy RPATH propagates to indirect dependencies
   // (nearest ancestor's first), unlike DT_RUNPATH.
@@ -1925,6 +1928,24 @@ async fn check_library_closure(
         Some(path) => {
           resolved[soname] = path
           loaded[soname] = path
+          // Register the embedded DT_SONAME immediately, at load time —
+          // a LATER entry in this same needed list may request it. The
+          // first loaded object wins on a SONAME collision.
+          if parsed.get(path) is None {
+            match library_deps(path) {
+              Some(child) => {
+                parsed[path] = child
+                match child.soname {
+                  Some(soname_alias) =>
+                    if loaded.get(soname_alias) is None {
+                      loaded[soname_alias] = path
+                    }
+                  None => ()
+                }
+              }
+              None => ()
+            }
+          }
           // Existence is not enough: the loader also refuses a provider
           // that is not a host-architecture ELF shared object.
           if !elf_file_usable(path, host) {
@@ -1947,31 +1968,18 @@ async fn check_library_closure(
     }
     // Queue each resolved provider so its own DT_NEEDED chain is checked
     // too — a missing transitive library stops the real loader as well.
+    // Children inherit this object's complete RPATH tier, which already
+    // ends with the ancestors' entries.
     for soname in objdeps.needed {
       match resolved.get(soname) {
         Some(found) =>
           if !visited.contains(found) {
             visited[found] = true
-            match library_deps(found) {
-              // Children inherit this object's complete RPATH tier,
-              // which already ends with the ancestors' entries.
-              Some(child) => {
-                // The loader registers a loaded object under its
-                // DT_SONAME too, so a later dependency requesting that
-                // name reuses it — even when the original lookup used a
-                // different filename. The first loaded object wins on a
-                // SONAME collision, so do not overwrite.
-                match child.soname {
-                  Some(soname_alias) =>
-                    if loaded.get(soname_alias) is None {
-                      loaded[soname_alias] = found
-                    }
-                  None => ()
-                }
+            match parsed.get(found) {
+              Some(child) =>
                 queue.push(
                   ("library \{found}", dirname_of(found), child, rpath_tier),
                 )
-              }
               None =>
                 fail(
                   "\{owner} cannot run on this system: library \{found} is not a parseable ELF64 object. Build it from source instead, or pass --skip-compat-check to install anyway.",
@@ -2014,8 +2022,13 @@ async fn check_library_closure(
             }
             if !visited.contains(found) {
               visited[found] = true
-              match library_deps(found) {
+              let child = match parsed.get(found) {
+                Some(value) => Some(value)
+                None => library_deps(found)
+              }
+              match child {
                 Some(child) => {
+                  parsed[found] = child
                   match child.soname {
                     Some(soname_alias) =>
                       if loaded.get(soname_alias) is None {
