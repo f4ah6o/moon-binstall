@@ -40,6 +40,24 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
       - uses: hustcer/setup-moonbit@v1
         if: steps.release.outputs.publish == 'true'
+      - name: Stamp declared glibc-min into moon-binstall.json
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          command -v objdump > /dev/null 2>&1 || sudo apt-get install -y binutils
+          version="$(sed -n 's/^version *= *"\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' moon.mod)"
+          gh release download "v$version" -p "moon-binstall-linux-x86_64" -O /tmp/moon-binstall --clobber
+          min="$(objdump -T /tmp/moon-binstall | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n1 | sed 's/^GLIBC_//')"
+          if [ -n "$min" ]; then
+            jq --arg min "$min" '.packages |= map(. + {"glibc-min": $min})' moon-binstall.json > moon-binstall.json.tmp
+            mv moon-binstall.json.tmp moon-binstall.json
+            echo "declared glibc-min=$min"
+          else
+            echo "no GLIBC_* requirements found; manifest left unchanged"
+          fi
       - name: Publish package to Mooncakes
         if: steps.release.outputs.publish == 'true'
         env:

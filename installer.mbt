@@ -475,6 +475,10 @@ priv struct ResolvedInstallPlan {
   install : ResolvedInstall
   archive_candidates : Array[String]
   discover_archive_member : Bool
+  /// Matched release target, used for compatibility pre-checks.
+  target : String
+  /// Publisher-declared minimum glibc version for Linux binaries.
+  glibc_min : String?
 }
 
 ///|
@@ -726,6 +730,11 @@ fn resolve_asset_plan_for_release(
     install: { asset, binary, format, bin_path, },
     archive_candidates,
     discover_archive_member,
+    target: matched_target,
+    glibc_min: match matched_config {
+      Some(item) => item.glibc_min
+      None => None
+    },
   }
 }
 
@@ -1159,6 +1168,108 @@ pub async fn install_many(options : BatchOptions) -> Unit {
 }
 
 ///|
+/// Parse the host libc from `ldd --version` output: "musl" on musl systems,
+/// the dotted version on glibc systems, or None when it cannot be told.
+fn parse_host_libc(output : String) -> String? {
+  if output.contains("musl") {
+    return Some("musl")
+  }
+  // GNU ldd prints e.g. "ldd (Ubuntu GLIBC 2.35-0ubuntu3.14) 2.35" and ends
+  // the first line with the version number.
+  match output.split("\n").iter().next() {
+    None => None
+    Some(first_line) => {
+      let mut version : String? = None
+      for token in first_line.split(" ") {
+        let text = token.trim().to_owned()
+        if text != "" &&
+          text[0] >= '0' &&
+          text[0] <= '9' &&
+          text.contains(".") {
+          version = Some(text)
+        }
+      }
+      version
+    }
+  }
+}
+
+///|
+/// Compare dotted numeric versions componentwise: "2.9" < "2.35".
+fn version_lt(left : String, right : String) -> Bool {
+  let a = left.split(".").collect()
+  let b = right.split(".").collect()
+  let n = if a.length() > b.length() { a.length() } else { b.length() }
+  for i = 0; i < n; i = i + 1 {
+    let x = if i < a.length() { parse_digits(a[i]) } else { 0 }
+    let y = if i < b.length() { parse_digits(b[i]) } else { 0 }
+    if x != y {
+      return x < y
+    }
+  }
+  false
+}
+
+///|
+fn parse_digits(text : StringView) -> Int {
+  let mut value = 0
+  for c in text {
+    if c >= '0' && c <= '9' {
+      value = value * 10 + (c.to_int() - '0'.to_int())
+    } else {
+      break
+    }
+  }
+  value
+}
+
+///|
+/// Fail before downloading when the publisher declares a glibc minimum that
+/// the host cannot satisfy (musl hosts and older glibc). Only applies to a
+/// Linux target on a Linux host; undetermined libc is left to the
+/// post-download ldd check.
+async fn check_declared_glibc(
+  glibc_min : String?,
+  target : String,
+  binary : String,
+  skip_compat_check : Bool,
+) -> Unit {
+  if skip_compat_check {
+    return
+  }
+  let min = match glibc_min {
+    Some(value) => value
+    None => return
+  }
+  guard target.has_prefix("linux") else { return }
+  let (uname_status, uname_out) = @process.collect_stdout("uname", ["-s"]) catch {
+    _ => return
+  }
+  guard uname_status == 0 && uname_out.text().trim() == "Linux" else {
+    return
+  }
+  let ldd = @shell.Cmd("ldd", ["--version"]).output(
+    timeout_ms=15000,
+    max_output_bytes=65536,
+  ) catch {
+    _ => return
+  }
+  match parse_host_libc(@utf8.decode(ldd.stdout_bytes())) {
+    Some("musl") =>
+      fail(
+        "installed binary \{binary} requires glibc >= \{min} but this system uses musl libc. Build it from source instead, or pass --skip-compat-check to install anyway.",
+      )
+    Some(version) =>
+      if version_lt(version, min) {
+        fail(
+          "installed binary \{binary} requires glibc >= \{min} but this system has glibc \{version}. Build it from source instead, or pass --skip-compat-check to install anyway.",
+        )
+      }
+    None => ()
+  }
+}
+
+///|
 async fn install_many_using(
   options : BatchOptions,
   transport : Transport,
@@ -1201,6 +1312,14 @@ async fn install_many_using(
     return
   }
   @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
+  for plan in resolved {
+    check_declared_glibc(
+      plan.glibc_min,
+      plan.target,
+      plan.install.binary,
+      options.skip_compat_check,
+    )
+  }
   for plan in resolved {
     check_destination(bin_dir + "/" + plan.install.binary, options.force)
   }

@@ -136,6 +136,7 @@ each package's release asset. For example:
       "pkg-url": "{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}",
       "pkg-fmt": "tgz",
       "bin-path": "{package}/{bin}",
+      "glibc-min": "2.38",
       "overrides": {
         "darwin-aarch64": {
           "pkg-url": "{ repo }/releases/download/v{ version }/{ bin }-{ target }{ archive-suffix }",
@@ -171,6 +172,14 @@ package value. Ordered `--targets` resolution applies each target's own
 settings. CLI options take precedence over both levels. All declared target
 names and metadata are validated, including overrides that are not ultimately
 selected.
+
+Optional `glibc-min` declares the minimum glibc version a Linux binary
+requires (for example `"2.38"` on an asset built on ubuntu-24.04), either at
+the package level or inside a target override. Before downloading, the
+installer compares it with the host libc on a Linux target/host: a musl
+system or an older glibc aborts the install with a hint to build from
+source. `--skip-compat-check` bypasses the declaration, and hosts whose libc
+cannot be determined fall through to the post-download `ldd` check.
 
 Templates accept both `{target}` and Cargo-style whitespace such as
 `{ target }`. They support `{repo}` (the module GitHub repository URL),

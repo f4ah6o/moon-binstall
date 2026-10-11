@@ -319,6 +319,7 @@ async fn fixture_install(
     } else {
       Some("bin/{bin}")
     },
+    glibc_min: None,
   }
   let options : BatchOptions = {
     coordinates: [],
@@ -1441,4 +1442,84 @@ test "unresolved_libraries reports missing shared libraries" {
     "\tlinux-vdso.so.1 (0x00007fff)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6\n"
   assert_eq(unresolved_libraries(healthy), [])
   assert_eq(unresolved_libraries("not a dynamic executable"), [])
+}
+
+///|
+test "parse_host_libc detects gnu and musl systems" {
+  assert_eq(
+    parse_host_libc("ldd (Ubuntu GLIBC 2.35-0ubuntu3.14) 2.35\nCopyright\n"),
+    Some("2.35"),
+  )
+  assert_eq(
+    parse_host_libc("musl libc (x86_64)\nVersion 1.2.5\n"),
+    Some("musl"),
+  )
+  assert_eq(parse_host_libc(""), None)
+}
+
+///|
+test "version_lt compares dotted numeric versions" {
+  assert_true(version_lt("2.35", "2.38"))
+  assert_true(version_lt("2.9", "2.35"))
+  assert_true(!version_lt("2.38", "2.38"))
+  assert_true(!version_lt("2.38.1", "2.38"))
+  assert_true(version_lt("2.38", "2.38.1"))
+}
+
+///|
+test "manifest glibc-min is parsed and validated" {
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"glibc-min\":\"2.38\"}]}"
+  let config = parse_artifact_config(manifest, "cmd/cli", "cli")
+  assert_eq(config.unwrap().glibc_min, Some("2.38"))
+  let bad = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"glibc-min\":\"latest\"}]}"
+  assert_true(
+    try {
+      ignore(parse_artifact_config(bad, "cmd/cli", "cli"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let override_manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"pkg-fmt\":\"bin\",\"overrides\":{\"linux-x86_64\":{\"glibc-min\":\"2.38\"}}}]}"
+  let set = parse_artifact_config_set(override_manifest, "cmd/cli", "cli")
+  assert_eq(
+    artifact_config_for_target(set.unwrap(), "linux-x86_64").glibc_min,
+    Some("2.38"),
+  )
+  assert_eq(
+    artifact_config_for_target(set.unwrap(), "darwin-aarch64").glibc_min,
+    None,
+  )
+}
+
+///|
+async test "declared glibc-min aborts install before download on linux" {
+  guard require_platform().has_prefix("linux") else { return }
+  let root = @fs.tmpdir(prefix="moon-binstall-glibc-min")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"version\":\"1.2.3\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"glibc-min\":\"99.0\"}]}"
+  let manifest_path = root + "/moon-binstall.json"
+  @fs.write_file(manifest_path, manifest)
+  let full_transport = make_registry_fixture_transport(root, false)
+  let transport = FixtureTransport::{
+    responses: [full_transport.responses[2]],
+    files: [],
+  }
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3",
+    "--manifest-path",
+    manifest_path,
+    "--bin-dir",
+    root + "/installed",
+    "--target",
+    "linux-x86_64",
+  ])
+  let error = try {
+    install_many_using(options, Fixture(transport))
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("requires glibc >= 99.0"))
+  assert_true(!@fs.exists(root + "/installed/cli"))
 }

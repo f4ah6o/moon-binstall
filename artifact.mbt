@@ -6,6 +6,9 @@ pub struct ArtifactConfig {
   pkg_url : String?
   pkg_fmt : String?
   bin_path : String?
+  /// Minimum glibc version the Linux binary requires (e.g. "2.38"), if the
+  /// publisher declares one.
+  glibc_min : String?
 }
 
 ///|
@@ -21,6 +24,7 @@ priv struct ArtifactOverride {
   pkg_url : String?
   pkg_fmt : String?
   bin_path : String?
+  glibc_min : String?
 }
 
 ///|
@@ -70,7 +74,7 @@ fn parse_artifact_config_set(
       }
       validate_metadata_keys(
         fields,
-        ["package", "binary", "pkg-url", "pkg-fmt", "bin-path", "overrides"],
+        ["package", "binary", "pkg-url", "pkg-fmt", "bin-path", "glibc-min", "overrides"],
         "package entry",
       )
       let binary = match optional_string_field(fields, "binary") {
@@ -80,13 +84,14 @@ fn parse_artifact_config_set(
       let pkg_url = optional_string_field(fields, "pkg-url")
       let pkg_fmt = optional_string_field(fields, "pkg-fmt")
       let bin_path = optional_string_field(fields, "bin-path")
-      validate_config_fields(pkg_url, pkg_fmt, bin_path)
+      let glibc_min = optional_string_field(fields, "glibc-min")
+      validate_config_fields(pkg_url, pkg_fmt, bin_path, glibc_min)
       guard safe_binary_name(binary) else {
         fail("unsafe binary name in moon-binstall.json")
       }
       let overrides = parse_target_overrides(fields.get("overrides"))
       found = Some({
-        base: { package_path, binary, pkg_url, pkg_fmt, bin_path, },
+        base: { package_path, binary, pkg_url, pkg_fmt, bin_path, glibc_min, },
         overrides,
       })
     }
@@ -122,17 +127,19 @@ fn parse_target_overrides(
         }
         validate_metadata_keys(
           fields,
-          ["pkg-url", "pkg-fmt", "bin-path"],
+          ["pkg-url", "pkg-fmt", "bin-path", "glibc-min"],
           "target override",
         )
         let pkg_url = optional_string_field(fields, "pkg-url")
         let pkg_fmt = optional_string_field(fields, "pkg-fmt")
         let bin_path = optional_string_field(fields, "bin-path")
-        guard pkg_url is Some(_) || pkg_fmt is Some(_) || bin_path is Some(_) else {
+        let glibc_min = optional_string_field(fields, "glibc-min")
+        guard pkg_url is Some(_) || pkg_fmt is Some(_) || bin_path is Some(_) ||
+          glibc_min is Some(_) else {
           fail("empty override for target \{target}")
         }
-        validate_config_fields(pkg_url, pkg_fmt, bin_path)
-        overrides.push((target, { pkg_url, pkg_fmt, bin_path, }))
+        validate_config_fields(pkg_url, pkg_fmt, bin_path, glibc_min)
+        overrides.push((target, { pkg_url, pkg_fmt, bin_path, glibc_min, }))
       }
     Some(_) => fail("invalid overrides in moon-binstall.json: expected an object")
   }
@@ -171,6 +178,7 @@ fn validate_config_fields(
   pkg_url : String?,
   pkg_fmt : String?,
   bin_path : String?,
+  glibc_min : String?,
 ) -> Unit raise {
   match pkg_fmt {
     Some(format) => validate_archive_format(format)
@@ -189,6 +197,29 @@ fn validate_config_fields(
       validate_member_template(template)
     }
     None => ()
+  }
+  match glibc_min {
+    Some(version) => validate_glibc_version(version)
+    None => ()
+  }
+}
+
+///|
+/// A glibc version is a dotted numeric tuple such as "2.35" or "2.38".
+fn validate_glibc_version(version : String) -> Unit raise {
+  let parts = version.split(".").collect()
+  guard parts.length() >= 2 else {
+    fail("invalid glibc-min in moon-binstall.json: \{version}")
+  }
+  for part in parts {
+    guard part != "" else {
+      fail("invalid glibc-min in moon-binstall.json: \{version}")
+    }
+    for c in part {
+      guard c >= '0' && c <= '9' else {
+        fail("invalid glibc-min in moon-binstall.json: \{version}")
+      }
+    }
   }
 }
 
@@ -218,6 +249,7 @@ fn artifact_config_for_target(
   let mut pkg_url = set.base.pkg_url
   let mut pkg_fmt = set.base.pkg_fmt
   let mut bin_path = set.base.bin_path
+  let mut glibc_min = set.base.glibc_min
   for (override_target, value) in set.overrides {
     if override_target == target {
       if value.pkg_url is Some(url) {
@@ -229,6 +261,9 @@ fn artifact_config_for_target(
       if value.bin_path is Some(path) {
         bin_path = Some(path)
       }
+      if value.glibc_min is Some(min) {
+        glibc_min = Some(min)
+      }
       break
     }
   }
@@ -238,6 +273,7 @@ fn artifact_config_for_target(
     pkg_url,
     pkg_fmt,
     bin_path,
+    glibc_min,
   }
 }
 

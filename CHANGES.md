@@ -26,6 +26,11 @@
   provides) aborts the install with a hint to build from source. Other
   formats and foreign architectures are skipped, and `--skip-compat-check`
   opts out.
+- Package entries and per-target overrides in `moon-binstall.json` accept an
+  optional `glibc-min` (e.g. `"2.38"`). On a Linux target/host the declared
+  minimum is checked before downloading: a musl host or an older glibc aborts
+  with a source-build hint. The publish workflow stamps the value measured
+  from the built Linux binary into the published manifest.
 
 ### Changed
 
