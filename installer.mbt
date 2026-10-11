@@ -99,7 +99,13 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
     idx = idx + 1
   }
   guard coordinate != "" else { fail("missing repository coordinate") }
-  { pkg: parse_package(coordinate), directory, dry_run, force, skip_compat_check, }
+  {
+    pkg: parse_package(coordinate),
+    directory,
+    dry_run,
+    force,
+    skip_compat_check,
+  }
 }
 
 ///|
@@ -164,7 +170,9 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
       }
       "--targets" => {
         idx = idx + 1
-        guard idx < argv.length() else { fail("--targets requires a target list") }
+        guard idx < argv.length() else {
+          fail("--targets requires a target list")
+        }
         guard !seen_targets else { fail("duplicate argument: --targets") }
         guard !seen_target else {
           fail("--target and --targets are mutually exclusive")
@@ -303,9 +311,7 @@ pub fn parse_target_list(value : String) -> Array[String] raise {
   let targets : Array[String] = []
   for entry in entries {
     let candidate = entry.trim().to_owned()
-    guard candidate != "" else {
-      fail("--targets contains an empty target")
-    }
+    guard candidate != "" else { fail("--targets contains an empty target") }
     validate_target(candidate)
     guard !targets.contains(candidate) else {
       fail("duplicate target in --targets: \{candidate}")
@@ -563,12 +569,12 @@ fn resolve_asset_for_release(
   options : BatchOptions,
 ) -> ResolvedInstall raise {
   let config_set = match config {
-    Some(value) => Some({ base: value, overrides: [] })
+    Some(value) => Some({ base: value, overrides: [], })
     None => None
   }
   resolve_asset_plan_for_release(
-    payload, owner, repo, binary, module_name, package_path, version_value,
-    target, config_set, options,
+    payload, owner, repo, binary, module_name, package_path, version_value, target,
+    config_set, options,
   ).install
 }
 
@@ -596,8 +602,15 @@ fn resolve_asset_plan_for_release(
   match config_set {
     Some(config) =>
       validate_artifact_config_set_for_release(
-        config, owner, repo, module_name, package_path, binary,
-        version_value, tag, options.pkg_fmt,
+        config,
+        owner,
+        repo,
+        module_name,
+        package_path,
+        binary,
+        version_value,
+        tag,
+        options.pkg_fmt,
       )
     None => ()
   }
@@ -637,8 +650,8 @@ fn resolve_asset_plan_for_release(
       Some(template) => {
         let suffix = archive_suffix(format_hint)
         let expanded = expand_artifact_template(
-          template, owner, repo, module_name, package_path, binary,
-          version_value, candidate_target, suffix,
+          template, owner, repo, module_name, package_path, binary, version_value,
+          candidate_target, suffix,
         )
         [artifact_url_asset_name(expanded, owner, repo, tag)]
       }
@@ -660,9 +673,7 @@ fn resolve_asset_plan_for_release(
       }
     }
     match
-      resolve_release_names_optional(
-        payload, owner, repo, names, Some(tag),
-      ) {
+      resolve_release_names_optional(payload, owner, repo, names, Some(tag)) {
       Some(asset) => {
         selected_asset = Some((asset, candidate_target, candidate_config))
         break
@@ -752,9 +763,10 @@ fn validate_artifact_config_set_for_release(
   tag : String,
   cli_format : String?,
 ) -> Unit raise {
-  for target in [
-    "linux-x86_64", "linux-aarch64", "darwin-x86_64", "darwin-aarch64",
-  ] {
+  for
+    target in [
+      "linux-x86_64", "linux-aarch64", "darwin-x86_64", "darwin-aarch64",
+    ] {
     let config = artifact_config_for_target(config_set, target)
     let format_hint = match cli_format {
       Some(value) => value
@@ -1165,7 +1177,9 @@ fn parse_elf64_deps(binary : Bytes) -> ElfDeps? {
     } else if ptype == 3 {
       let offset = elf_u64le(binary, p + 8)
       let size = elf_u64le(binary, p + 32)
-      if size > 0L && offset >= 0L && offset + size <= binary.length().to_int64() {
+      if size > 0L &&
+        offset >= 0L &&
+        offset + size <= binary.length().to_int64() {
         interp = Some(elf_cstr(binary, offset.to_int()))
       }
     } else if ptype == 2 {
@@ -1477,10 +1491,11 @@ async fn library_dirs() -> Array[String] {
 
 ///|
 /// Expand the DT_RUNPATH/DT_RPATH search list into directories to probe.
-/// `$ORIGIN` resolves against the directory the binary will be installed
-/// into (its final location, not the private staging directory). Entries
-/// containing other `$` tokens ($LIB, $PLATFORM) or relative paths are
-/// ignored — they resolve against an unknown context.
+/// `$ORIGIN` and the equivalent `${ORIGIN}` resolve against the directory
+/// the binary will be installed into (its final location, not the private
+/// staging directory). Entries still containing other `$` tokens ($LIB,
+/// $PLATFORM) or relative paths are ignored — they resolve against an
+/// unknown context.
 fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
   let dirs : Array[String] = []
   let value = match runpath {
@@ -1492,8 +1507,13 @@ fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
     if dir == "" {
       continue
     }
-    if dir.contains("$ORIGIN") {
-      dirs.push(dir.replace_all(old="$ORIGIN", new=origin))
+    if dir.contains("$ORIGIN") || dir.contains("${ORIGIN}") {
+      let expanded = dir
+        .replace_all(old="${ORIGIN}", new=origin)
+        .replace_all(old="$ORIGIN", new=origin)
+      if !expanded.contains("$") {
+        dirs.push(expanded)
+      }
     } else if dir.contains("$") {
       continue
     } else if dir.has_prefix("/") {
@@ -1501,6 +1521,53 @@ fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
     }
   }
   dirs
+}
+
+///|
+/// Whether `bytes` starts with a usable little-endian ELF64 shared-object
+/// header built for e_machine `host` — the shape the kernel's PT_INTERP
+/// handling and the dynamic loader can actually map. Only the first 20
+/// bytes are needed.
+fn elf64_usable(binary : Bytes, host : Int) -> Bool {
+  binary.length() >= 20 &&
+  binary[0].to_int() == 0x7f &&
+  binary[1] == b'E' &&
+  binary[2] == b'L' &&
+  binary[3] == b'F' &&
+  binary[4].to_int() == 2 &&
+  binary[5].to_int() == 1 &&
+  // ET_DYN: both ld.so loaders and shared libraries.
+  elf_u16le(binary, 16) == 3 &&
+  elf_u16le(binary, 18) == host
+}
+
+///|
+/// Read the first `len` bytes of `path`, or None when it cannot be opened
+/// or read. Keeps header inspection cheap on large provider libraries.
+async fn file_head(path : String, len : Int) -> Bytes? {
+  let file = @fs.open(path, mode=ReadOnly) catch { _ => return None }
+  let buf : FixedArray[Byte] = FixedArray::make(len, 0)
+  let n = file.read(buf, max_len=len) catch {
+    _ => {
+      file.close()
+      return None
+    }
+  }
+  file.close()
+  Some(Bytes::from_array(buf.iter().take(n).collect()))
+}
+
+///|
+/// Whether the file at `path` is a usable host-architecture ELF64 shared
+/// object — required of both the PT_INTERP loader and resolved DT_NEEDED
+/// libraries. A wrong-architecture ELF, a 32-bit ELF, a non-ELF file, an
+/// unreadable path and an ET_REL/ET_EXEC object all fail the real loader
+/// too, so they fail here.
+async fn elf_file_usable(path : String, host : Int) -> Bool {
+  match file_head(path, 20) {
+    Some(head) => elf64_usable(head, host)
+    None => false
+  }
 }
 
 ///|
@@ -1600,10 +1667,18 @@ async fn verify_binary_compat(
   }
   match deps.interp {
     Some(interp) =>
-      if interp != "" && !@fs.exists(interp) {
-        fail(
-          "installed binary \{name} cannot run on this system: ELF interpreter \{interp} is missing. Build it from source instead, or pass --skip-compat-check to install anyway.",
-        )
+      if interp != "" {
+        // An existing path is not enough: the kernel refuses a PT_INTERP
+        // that is not a regular executable host-architecture ELF loader.
+        let usable = @fs.exists(interp) &&
+          @fs.kind(interp) is Regular &&
+          @fs.can_execute(interp) &&
+          elf_file_usable(interp, host)
+        if !usable {
+          fail(
+            "installed binary \{name} cannot run on this system: ELF interpreter \{interp} is missing or is not an executable ELF loader for this architecture. Build it from source instead, or pass --skip-compat-check to install anyway.",
+          )
+        }
       }
     None =>
       if !deps.needed.is_empty() {
@@ -1615,10 +1690,20 @@ async fn verify_binary_compat(
   let rpath_dirs = expand_runpath(deps.runpath, install_dir)
   let cache = ldconfig_map()
   let dirs = library_dirs()
+  let resolved : Map[String, String] = Map([])
   let missing : Array[String] = []
+  let unusable : Array[String] = []
   for soname in deps.needed {
-    if resolve_soname(soname, rpath_dirs, cache, dirs) is None {
-      missing.push(soname)
+    match resolve_soname(soname, rpath_dirs, cache, dirs) {
+      None => missing.push(soname)
+      Some(found) => {
+        resolved[soname] = found
+        // Existence is not enough: the loader also refuses a provider that
+        // is not a host-architecture ELF shared object.
+        if !elf_file_usable(found, host) {
+          unusable.push(soname)
+        }
+      }
     }
   }
   let missing_list = missing.join(", ")
@@ -1627,24 +1712,40 @@ async fn verify_binary_compat(
       "installed binary \{name} cannot run on this system: unresolved libraries \{missing_list}. Build it from source instead, or pass --skip-compat-check to install anyway.",
     )
   }
+  let unusable_list = unusable.join(", ")
+  guard unusable.is_empty() else {
+    fail(
+      "installed binary \{name} cannot run on this system: unusable libraries \{unusable_list} (not loadable ELF64 shared objects for this architecture). Build it from source instead, or pass --skip-compat-check to install anyway.",
+    )
+  }
   for requirement in deps.verneed {
     let (provider, version) = requirement
-    let provider_path = match resolve_soname(provider, rpath_dirs, cache, dirs) {
-      Some(resolved) => resolved
+    let provider_path = match resolved.get(provider) {
+      Some(found) => Some(found)
+      None => resolve_soname(provider, rpath_dirs, cache, dirs)
+    }
+    match provider_path {
       None =>
         fail(
           "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which cannot be located. Build it from source instead, or pass --skip-compat-check to install anyway.",
         )
-    }
-    match library_defined_versions(provider_path) {
-      Some(defined) =>
-        if !defined.contains(version) {
+      Some(provider_path) =>
+        if !elf_file_usable(provider_path, host) {
           fail(
-            "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{provider_path} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
+            "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, but \{provider_path} is not a usable ELF shared object. Build it from source instead, or pass --skip-compat-check to install anyway.",
           )
+        } else {
+          match library_defined_versions(provider_path) {
+            Some(defined) =>
+              if !defined.contains(version) {
+                fail(
+                  "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{provider_path} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
+                )
+              }
+            // An unparseable provider is left to the runtime loader.
+            None => ()
+          }
         }
-      // An unparseable provider is left to the runtime loader.
-      None => ()
     }
   }
 }
@@ -1672,7 +1773,9 @@ async fn stage_install(
   verify_digest(archive_path, item.asset.digest)
   let binary = if plan.discover_archive_member {
     read_artifact_binary_from_candidates(
-      archive_path, item.format, plan.archive_candidates,
+      archive_path,
+      item.format,
+      plan.archive_candidates,
     )
   } else {
     read_artifact_binary(archive_path, item.format, item.bin_path)
@@ -1712,10 +1815,7 @@ fn parse_host_libc(output : String) -> String? {
       let mut version : String? = None
       for token in first_line.split(" ") {
         let text = token.trim().to_owned()
-        if text != "" &&
-          text[0] >= '0' &&
-          text[0] <= '9' &&
-          text.contains(".") {
+        if text != "" && text[0] >= '0' && text[0] <= '9' && text.contains(".") {
           version = Some(text)
         }
       }

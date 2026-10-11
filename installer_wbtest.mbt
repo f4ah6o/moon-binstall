@@ -42,9 +42,7 @@ async fn create_fixture_tar_entries(
   @fs.mkdir(source, recursive=true, allow_exist=true)
   for (member_path, content) in entries {
     if member_path.has_suffix("/") {
-      @fs.mkdir(
-        source + "/" + member_path, recursive=true, allow_exist=true,
-      )
+      @fs.mkdir(source + "/" + member_path, recursive=true, allow_exist=true)
     } else {
       let parts = member_path.split("/").collect()
       let mut parent = source
@@ -143,20 +141,12 @@ async fn create_unsafe_fixture_tar(
 /// checksum check, reproducing a compression auto-detection ambiguity.
 async fn create_gzip_with_tar_checksum_fixture(archive : String) -> Unit {
   let script = [
-    "import io, struct, sys, tarfile, zlib",
-    "plain = io.BytesIO()",
-    "with tarfile.open(fileobj=plain, mode='w') as archive:",
-    "    member = tarfile.TarInfo('bin/fixture')",
-    "    data = b'forged gzip fixture' + bytes([10])",
-    "    member.size = len(data)",
-    "    archive.addfile(member, io.BytesIO(data))",
-    "tar_data = plain.getvalue()",
-    "header = bytearray(bytes([31, 139, 8, 4]) + bytes(4) + bytes([0, 255]) + struct.pack('<H', 500) + bytes(500))",
-    "header[148:156] = bytes([32]) * 8",
-    "checksum = sum(header)",
-    "header[148:156] = ('%06o' % checksum).encode() + bytes([0, 32])",
-    "assert int(header[148:154], 8) == checksum",
-    "compressor = zlib.compressobj(wbits=-15)",
+    "import io, struct, sys, tarfile, zlib", "plain = io.BytesIO()", "with tarfile.open(fileobj=plain, mode='w') as archive:",
+    "    member = tarfile.TarInfo('bin/fixture')", "    data = b'forged gzip fixture' + bytes([10])",
+    "    member.size = len(data)", "    archive.addfile(member, io.BytesIO(data))",
+    "tar_data = plain.getvalue()", "header = bytearray(bytes([31, 139, 8, 4]) + bytes(4) + bytes([0, 255]) + struct.pack('<H', 500) + bytes(500))",
+    "header[148:156] = bytes([32]) * 8", "checksum = sum(header)", "header[148:156] = ('%06o' % checksum).encode() + bytes([0, 32])",
+    "assert int(header[148:154], 8) == checksum", "compressor = zlib.compressobj(wbits=-15)",
     "gzip_data = bytes(header) + compressor.compress(tar_data) + compressor.flush() + struct.pack('<II', zlib.crc32(tar_data), len(tar_data))",
     "open(sys.argv[1], 'wb').write(gzip_data)",
   ].join("\n")
@@ -235,7 +225,8 @@ async fn make_target_override_transport(root : String) -> FixtureTransport {
   ])
   let digest = fixture_digest(archive)
   let asset_name = "cli-macos-aarch64.zip"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let metadata_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
   let source_url = "https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip"
   let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
@@ -371,16 +362,18 @@ async test "tar codec formats extract only the selected member and enforce bound
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let content = "codec fixture payload"
   let formats = [
-    "tar", "tgz", "tar.gz", "tbz2", "tar.bz2", "txz", "tar.xz",
-    "tzstd", "tar.zst",
+    "tar", "tgz", "tar.gz", "tbz2", "tar.bz2", "txz", "tar.xz", "tzstd", "tar.zst",
   ]
   for i = 0; i < formats.length(); i = i + 1 {
     let format = formats[i]
     let suffix = archive_suffix(format)
     let archive = root + "/safe-" + i.to_string() + suffix
     create_fixture_tar_format(
-      root + "/safe-src-" + i.to_string(), archive, content,
-      "bin/fixture", format,
+      root + "/safe-src-" + i.to_string(),
+      archive,
+      content,
+      "bin/fixture",
+      format,
     )
     assert_eq(
       @utf8.decode(read_artifact_binary(archive, format, Some("bin/fixture"))),
@@ -400,7 +393,10 @@ async test "tar codec formats extract only the selected member and enforce bound
       try {
         ignore(
           read_artifact_binary_with_limit(
-            archive, format, Some("bin/fixture"), 3,
+            archive,
+            format,
+            Some("bin/fixture"),
+            3,
           ),
         )
         false
@@ -411,14 +407,14 @@ async test "tar codec formats extract only the selected member and enforce bound
 
     let unsafe_archive = root + "/unsafe-" + i.to_string() + suffix
     create_unsafe_fixture_tar(
-      root + "/unsafe-src-" + i.to_string(), unsafe_archive, format,
+      root + "/unsafe-src-" + i.to_string(),
+      unsafe_archive,
+      format,
     )
     assert_true(
       try {
         ignore(
-          read_artifact_binary(
-            unsafe_archive, format, Some("bin/fixture"),
-          ),
+          read_artifact_binary(unsafe_archive, format, Some("bin/fixture")),
         )
         false
       } catch {
@@ -434,7 +430,11 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let gzip_archive = root + "/fixture.tgz"
   create_fixture_tar_format(
-    root + "/gzip-src", gzip_archive, "fixture", "bin/fixture", "tgz",
+    root + "/gzip-src",
+    gzip_archive,
+    "fixture",
+    "bin/fixture",
+    "tgz",
   )
   assert_true(
     try {
@@ -446,7 +446,11 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   )
   let plain_archive = root + "/fixture.tar"
   create_fixture_tar_format(
-    root + "/plain-src", plain_archive, "fixture", "bin/fixture", "tar",
+    root + "/plain-src",
+    plain_archive,
+    "fixture",
+    "bin/fixture",
+    "tar",
   )
   assert_true(
     try {
@@ -472,9 +476,7 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   assert_true(
     try {
       ignore(
-        read_artifact_binary(
-          forged_gzip_archive, "tar", Some("bin/fixture"),
-        ),
+        read_artifact_binary(forged_gzip_archive, "tar", Some("bin/fixture")),
       )
       false
     } catch {
@@ -488,13 +490,17 @@ async test "plain tar accepts member names that resemble ASCII container magic" 
   let root = @fs.tmpdir(prefix="moon-binstall-tar-ascii-magic-names")
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let content = "valid plain tar member"
-  for name in [
-    "BZh-tool", "LZIP-tool", "070701-tool", "070702-tool", "070707-tool",
-    "MSCF-tool",
-  ] {
+  for
+    name in [
+      "BZh-tool", "LZIP-tool", "070701-tool", "070702-tool", "070707-tool", "MSCF-tool",
+    ] {
     let archive = root + "/" + name + ".tar"
     create_fixture_tar_format(
-      root + "/source-" + name, archive, content, name, "tar",
+      root + "/source-" + name,
+      archive,
+      content,
+      name,
+      "tar",
     )
     assert_eq(
       @utf8.decode(read_artifact_binary(archive, "tar", Some(name))),
@@ -511,32 +517,80 @@ test "ordered targets prefer earlier assets and apply the matched target to temp
     "--pkg-fmt", "tgz", "--bin-path", "bin/{target}/{bin}",
   ])
   let first_name = "tool-linux-x86_64.tgz"
-  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + first_name
+  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    first_name
   let second_name = "tool-darwin-aarch64.tgz"
-  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + second_name
+  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    second_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  let first_asset = "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"}"
-  let second_asset = "{\"name\":\"" + second_name + "\",\"browser_download_url\":\"" + second_url + "\",\"digest\":\"" + digest + "\"}"
-  let only_second = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + second_asset + "]}"
+  let first_asset = "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}"
+  let second_asset = "{\"name\":\"" +
+    second_name +
+    "\",\"browser_download_url\":\"" +
+    second_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}"
+  let only_second = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+    second_asset +
+    "]}"
   let resolved_second = resolve_asset_for_release(
-    only_second, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-    "linux-x86_64", None, options,
+    only_second,
+    "acme",
+    "tool",
+    "tool",
+    "tool",
+    "tool",
+    "1.0.0",
+    "linux-x86_64",
+    None,
+    options,
   )
   assert_eq(resolved_second.asset.name, second_name)
   assert_eq(resolved_second.bin_path, Some("bin/darwin-aarch64/tool"))
 
-  let both = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + first_asset + "," + second_asset + "]}"
+  let both = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+    first_asset +
+    "," +
+    second_asset +
+    "]}"
   let resolved_first = resolve_asset_for_release(
-    both, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-    "linux-x86_64", None, options,
+    both,
+    "acme",
+    "tool",
+    "tool",
+    "tool",
+    "tool",
+    "1.0.0",
+    "linux-x86_64",
+    None,
+    options,
   )
   assert_eq(resolved_first.asset.name, first_name)
 
   let unrelated_unsafe = "{\"name\":\"other-linux-x86_64.tgz\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"sha512:bad\"}"
-  let with_unselected_unsafe = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + unrelated_unsafe + "," + first_asset + "]}"
+  let with_unselected_unsafe = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+    unrelated_unsafe +
+    "," +
+    first_asset +
+    "]}"
   let resolved_with_unselected_unsafe = resolve_asset_for_release(
-    with_unselected_unsafe, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-    "linux-x86_64", None, options,
+    with_unselected_unsafe,
+    "acme",
+    "tool",
+    "tool",
+    "tool",
+    "tool",
+    "1.0.0",
+    "linux-x86_64",
+    None,
+    options,
   )
   assert_eq(resolved_with_unselected_unsafe.asset.name, first_name)
 
@@ -545,8 +599,16 @@ test "ordered targets prefer earlier assets and apply the matched target to temp
     try {
       ignore(
         resolve_asset_for_release(
-          empty, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-          "linux-x86_64", None, options,
+          empty,
+          "acme",
+          "tool",
+          "tool",
+          "tool",
+          "tool",
+          "1.0.0",
+          "linux-x86_64",
+          None,
+          options,
         ),
       )
       false
@@ -564,26 +626,74 @@ test "malformed preferred target assets fail closed instead of falling back" {
     "--pkg-fmt", "tgz",
   ])
   let first_name = "tool-linux-x86_64.tgz"
-  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + first_name
+  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    first_name
   let second_name = "tool-darwin-aarch64.tgz"
-  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + second_name
+  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    second_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  let valid_second = "{\"name\":\"" + second_name + "\",\"browser_download_url\":\"" + second_url + "\",\"digest\":\"" + digest + "\"}"
+  let valid_second = "{\"name\":\"" +
+    second_name +
+    "\",\"browser_download_url\":\"" +
+    second_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}"
   let invalid_preferred = [
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":null,\"digest\":\"" + digest + "\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"" + digest + "\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"sha512:bad\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"},{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":null,\"digest\":\"" +
+    digest +
+    "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"" +
+    digest +
+    "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"sha512:bad\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"},{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}",
   ]
   for bad_entries in invalid_preferred {
-    let payload = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + bad_entries + "," + valid_second + "]}"
+    let payload = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+      bad_entries +
+      "," +
+      valid_second +
+      "]}"
     assert_true(
       try {
         ignore(
           resolve_asset_for_release(
-            payload, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-            "linux-x86_64", None, options,
+            payload,
+            "acme",
+            "tool",
+            "tool",
+            "tool",
+            "tool",
+            "1.0.0",
+            "linux-x86_64",
+            None,
+            options,
           ),
         )
         false
@@ -649,9 +759,7 @@ async test "archive member discovery prefers root then finds standard release di
   ])
   assert_eq(
     @utf8.decode(
-      read_artifact_binary_from_candidates(
-        root_and_nested, "zip", candidates,
-      ),
+      read_artifact_binary_from_candidates(root_and_nested, "zip", candidates),
     ),
     "root binary",
   )
@@ -684,7 +792,9 @@ async test "archive member discovery prefers root then finds standard release di
   create_fixture_zip(empty_member, "cli", "")
   assert_true(
     try {
-      ignore(read_artifact_binary_from_candidates(empty_member, "zip", candidates))
+      ignore(
+        read_artifact_binary_from_candidates(empty_member, "zip", candidates),
+      )
       false
     } catch {
       _ => true
@@ -754,9 +864,7 @@ async test "archive discovery skips exact matching directories but explicit path
     }
     assert_eq(
       @utf8.decode(
-        read_artifact_binary_from_candidates(
-          root_priority, format, candidates,
-        ),
+        read_artifact_binary_from_candidates(root_priority, format, candidates),
       ),
       "root binary",
     )
@@ -787,7 +895,9 @@ async test "archive discovery skips exact matching directories but explicit path
     } catch {
       error => error.to_string()
     }
-    assert_true(explicit_error.contains("requested archive member is a directory"))
+    assert_true(
+      explicit_error.contains("requested archive member is a directory"),
+    )
   }
 }
 
@@ -1196,7 +1306,8 @@ async test "ordered target overrides select matching URL format and member path"
     "acme/toolkit/cmd/cli@1.2.3", "--targets", "linux-x86_64,darwin-aarch64",
   ])
   let asset_name = "darwin-darwin-aarch64.zip"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
   let plan = resolve_asset_plan_for_release(
@@ -1227,21 +1338,15 @@ async test "CLI artifact options override target metadata and explicit path neve
     None => fail("expected package config")
   }
   let options = parse_batch_options([
-    "acme/toolkit/cmd/cli@1.2.3",
-    "--target",
-    "linux-x86_64",
-    "--pkg-url",
-    "{ repo }/releases/download/v{ version }/cli-{ target }-{ archive-format }.zip",
-    "--pkg-fmt",
-    "zip",
-    "--bin-path",
-    "exact/{ target }/{ bin }",
+    "acme/toolkit/cmd/cli@1.2.3", "--target", "linux-x86_64", "--pkg-url", "{ repo }/releases/download/v{ version }/cli-{ target }-{ archive-format }.zip",
+    "--pkg-fmt", "zip", "--bin-path", "exact/{ target }/{ bin }",
   ])
   let archive = root + "/cli.zip"
   create_fixture_zip(archive, "cli", "root fallback must not be used")
   let digest = fixture_digest(archive)
   let asset_name = "cli-linux-x86_64-zip.zip"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
   let plan = resolve_asset_plan_for_release(
     payload,
@@ -1299,16 +1404,12 @@ test "CLI URL override does not mask an invalid declared target URL" {
     None => fail("expected package config")
   }
   let options = parse_batch_options([
-    "acme/toolkit/cmd/cli@1.2.3",
-    "--target",
-    "linux-x86_64",
-    "--pkg-url",
-    "{repo}/releases/download/v{version}/{bin}-{target}",
-    "--pkg-fmt",
-    "bin",
+    "acme/toolkit/cmd/cli@1.2.3", "--target", "linux-x86_64", "--pkg-url", "{repo}/releases/download/v{version}/{bin}-{target}",
+    "--pkg-fmt", "bin",
   ])
   let asset_name = "cli-linux-x86_64"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
   let error = try {
@@ -1339,10 +1440,7 @@ async test "Mooncakes target fallback uses whitespace metadata and discovers nes
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let output = root + "/installed"
   let options = parse_batch_options([
-    "acme/toolkit/cmd/cli@1.2.3",
-    "--targets",
-    "linux-x86_64,darwin-aarch64",
-    "--bin-dir",
+    "acme/toolkit/cmd/cli@1.2.3", "--targets", "linux-x86_64,darwin-aarch64", "--bin-dir",
     output,
   ])
   let transport = make_target_override_transport(root)
@@ -1370,8 +1468,10 @@ async test "second archive discovery failure preserves both forced destinations"
   let second_digest = fixture_digest(second_archive)
   let first_name = "first-linux-x86_64.zip"
   let second_name = "second-linux-x86_64.zip"
-  let first_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + first_name
-  let second_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + second_name
+  let first_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    first_name
+  let second_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    second_name
   let source_url = "https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip"
   let metadata_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
   let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
@@ -1390,13 +1490,8 @@ async test "second archive discovery failure preserves both forced destinations"
   @fs.write_file(output + "/first", "old first\n")
   @fs.write_file(output + "/second", "old second\n")
   let options = parse_batch_options([
-    "acme/toolkit/cmd/first@1.2.3",
-    "acme/toolkit/cmd/second@1.2.3",
-    "--bin-dir",
-    output,
-    "--target",
-    "linux-x86_64",
-    "--force",
+    "acme/toolkit/cmd/first@1.2.3", "acme/toolkit/cmd/second@1.2.3", "--bin-dir",
+    output, "--target", "linux-x86_64", "--force",
   ])
   assert_true(
     try {
@@ -1623,7 +1718,13 @@ fn make_test_elf64(
       put16(versions.length())
       put32(strtab_offsets[provider])
       put32(16)
-      put32(if pi + 1 < verneed.length() { 16 + 16 * versions.length() } else { 0 })
+      put32(
+        if pi + 1 < verneed.length() {
+          16 + 16 * versions.length()
+        } else {
+          0
+        },
+      )
       for j, version in versions {
         put32(0)
         put16(0)
@@ -1667,10 +1768,10 @@ test "parse_elf64_deps extracts interp, needed, runpath and versions" {
   assert_eq(deps.interp, Some("/lib64/ld-linux-x86-64.so.2"))
   assert_eq(deps.needed, ["libc.so.6", "libm.so.6"])
   assert_eq(deps.runpath, Some("$ORIGIN/lib"))
-  assert_eq(
-    deps.verneed,
-    [("libc.so.6", "GLIBC_2.34"), ("libc.so.6", "GLIBC_2.38")],
-  )
+  assert_eq(deps.verneed, [
+    ("libc.so.6", "GLIBC_2.34"),
+    ("libc.so.6", "GLIBC_2.38"),
+  ])
   let libelf = make_test_elf64(62, 3, None, [], None, [], ["GLIBCXX_3.4.21"])
   let libdeps = parse_elf64_deps(libelf).unwrap()
   assert_eq(libdeps.verdef, ["GLIBCXX_3.4.21"])
@@ -1691,9 +1792,16 @@ test "parse_elf64_deps extracts interp, needed, runpath and versions" {
 test "expand_runpath expands $ORIGIN and drops unexpandable entries" {
   assert_eq(expand_runpath(None, "/opt/bin"), [])
   assert_eq(
-    expand_runpath(Some("$ORIGIN:$ORIGIN/lib:/abs/lib:$LIB:rel/lib"), "/opt/bin"),
+    expand_runpath(
+      Some("$ORIGIN:$ORIGIN/lib:/abs/lib:$LIB:rel/lib"),
+      "/opt/bin",
+    ),
     ["/opt/bin", "/opt/bin/lib", "/abs/lib"],
   )
+  // The braced ${ORIGIN} form is equivalent for the glibc loader.
+  assert_eq(expand_runpath(Some("${ORIGIN}:${ORIGIN}/lib"), "/opt/bin"), [
+    "/opt/bin", "/opt/bin/lib",
+  ])
 }
 
 ///|
@@ -1750,9 +1858,7 @@ async test "verify_binary_compat rejects non-executable and malformed ELF" {
     bytes.push(0)
   }
   let malformed = try {
-    verify_binary_compat(
-      "/tmp/stub", Bytes::from_array(bytes), false, "/tmp",
-    )
+    verify_binary_compat("/tmp/stub", Bytes::from_array(bytes), false, "/tmp")
     ""
   } catch {
     error => error.to_string()
@@ -1770,11 +1876,12 @@ async test "verify_binary_compat rejects non-executable and malformed ELF" {
 }
 
 ///|
-/// Stage a throwaway file standing in for the PT_INTERP loader — the
-/// compat check only requires the interpreter path to exist.
+/// Stage a usable PT_INTERP stand-in: an executable host-architecture
+/// ET_DYN ELF, matching what the kernel accepts as a loader.
 async fn staged_loader(dir : String) -> String {
   let path = dir + "/ld-binstall-test.so.2"
-  @fs.write_file(path, "loader\n")
+  @fs.write_file(path, make_test_elf64(62, 3, None, [], None, [], []))
+  @fs.chmod(path, 0o755)
   path
 }
 
@@ -1808,7 +1915,10 @@ async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let install_dir = @fs.tmpdir(prefix="moon-binstall-rpath")
   defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
-  @fs.write_file(install_dir + "/libfake99.so", "not an elf but exists\n")
+  // A private library beside the installed binary must itself be a usable
+  // host-architecture shared object.
+  let lib = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(install_dir + "/libfake99.so", lib)
   let loader = staged_loader(install_dir)
   let elf = make_test_elf64(
     62,
@@ -1837,6 +1947,122 @@ async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
     error => error.to_string()
   }
   assert_true(error.contains("libfake99.so"))
+  // The braced ${ORIGIN} form resolves the same way.
+  let braced = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfake99.so"],
+    Some("${ORIGIN}"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", braced, false, install_dir)
+}
+
+///|
+async test "verify_binary_compat rejects an unusable ELF interpreter" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-interp")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let lib = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(install_dir + "/libfake99.so", lib)
+  // Case 1: an existing non-ELF, non-executable text file.
+  let text_loader = install_dir + "/fake-loader"
+  @fs.write_file(text_loader, "just text\n")
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(text_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("ELF interpreter"))
+  // Case 2: a proper ELF loader without the executable bit.
+  let noexec_loader = install_dir + "/ld-noexec.so.2"
+  @fs.write_file(noexec_loader, make_test_elf64(62, 3, None, [], None, [], []))
+  @fs.chmod(noexec_loader, 0o644)
+  let elf2 = make_test_elf64(
+    62,
+    2,
+    Some(noexec_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error2 = try {
+    verify_binary_compat("/tmp/staged-app", elf2, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error2.contains("ELF interpreter"))
+  // Case 3: a foreign-architecture loader is not usable either.
+  let arm_loader = install_dir + "/ld-arm.so.2"
+  @fs.write_file(arm_loader, make_test_elf64(183, 3, None, [], None, [], []))
+  @fs.chmod(arm_loader, 0o755)
+  let elf3 = make_test_elf64(
+    62,
+    2,
+    Some(arm_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error3 = try {
+    verify_binary_compat("/tmp/staged-app", elf3, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error3.contains("ELF interpreter"))
+}
+
+///|
+async test "verify_binary_compat rejects a wrong-architecture provider" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-wrongarch")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // The provider resolves via $ORIGIN but is built for AArch64.
+  let arm_lib = make_test_elf64(183, 3, None, [], None, [], [])
+  @fs.write_file(install_dir + "/libfake99.so", arm_lib)
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("unusable libraries"))
+  assert_true(error.contains("libfake99.so"))
+  // A non-ELF file at the resolved path is equally unusable.
+  @fs.write_file(install_dir + "/libfake99.so", "not an elf\n")
+  let error2 = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error2.contains("unusable libraries"))
 }
 
 ///|
@@ -1886,9 +2112,7 @@ async test "verify_binary_compat checks non-GLIBC versions on linux" {
   defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
   let loader = staged_loader(install_dir)
   // A provider library that defines GLIBCXX_3.4.21 but not GLIBCXX_9.9.99.
-  let provider = make_test_elf64(
-    62, 3, None, [], None, [], ["GLIBCXX_3.4.21"],
-  )
+  let provider = make_test_elf64(62, 3, None, [], None, [], ["GLIBCXX_3.4.21"])
   @fs.write_file(install_dir + "/libfakexx.so.6", provider)
   let elf = make_test_elf64(
     62,
@@ -2029,4 +2253,3 @@ async test "declared glibc-min does not apply to a cross-architecture fetch" {
   install_many_using(options, Fixture(transport))
   assert_eq(@fs.read_file(root + "/installed/cli").text(), "arm64 payload\n")
 }
-

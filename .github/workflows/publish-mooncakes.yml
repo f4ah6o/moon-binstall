@@ -50,12 +50,6 @@ jobs:
           command -v objdump > /dev/null 2>&1 || sudo apt-get install -y binutils
           version="$(sed -n 's/^version *= *"\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' moon.mod)"
           assets="$(gh release view "v$version" --json assets --jq '.assets[].name')"
-          measure() {
-            # Print the newest GLIBC_* version the asset requires (empty when
-            # it has none, e.g. a static or musl build).
-            gh release download "v$version" -p "$1" -O "/tmp/$1" --clobber
-            objdump -T "/tmp/$1" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n1 | sed 's/^GLIBC_//' || true
-          }
           tmp="$(mktemp)"
           cp moon-binstall.json "$tmp"
           # For every package entry, measure each Linux release asset that
@@ -73,7 +67,10 @@ jobs:
               asset="$binary-$target"
               if grep -qxF "$asset" <<< "$assets"; then
                 targets+=("$target")
-                mins+=("$(measure "$asset")")
+                # A failed download or objdump aborts the workflow instead of
+                # stamping nothing — only a real symbol-less binary yields "".
+                min="$(bash scripts/measure_glibc_min.sh "$asset" "v$version" /tmp)"
+                mins+=("$min")
               fi
             done
             [ "${#targets[@]}" -gt 0 ] || continue

@@ -25,8 +25,8 @@ jobs:
         run: moon check --target native --deny-warn
       - name: Tests
         run: moon test --target native
-      - name: Release version tests
-        run: python3 -m unittest discover -s scripts/tests -p 'test_release_version.py' -v
+      - name: Release helper tests
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
       - name: Validate Mooncakes package contents
         run: moon package --list
       - name: Build native CLI
