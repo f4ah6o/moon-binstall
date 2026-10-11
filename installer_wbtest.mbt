@@ -1538,6 +1538,7 @@ fn make_test_elf64(
   runpath : String?,
   verneed : Array[(String, Array[String])],
   verdef : Array[String],
+  rpath_tag? : Int64 = 29L,
 ) -> Bytes raise {
   let out : Array[Byte] = []
   fn put8(value : Int) -> Unit {
@@ -1699,7 +1700,7 @@ fn make_test_elf64(
     put_dyn(5L, strtab_off.to_int64())
     put_dyn(10L, strtab.length().to_int64())
     match runpath {
-      Some(_) => put_dyn(29L, strtab_offsets[runpath.unwrap()].to_int64())
+      Some(_) => put_dyn(rpath_tag, strtab_offsets[runpath.unwrap()].to_int64())
       None => ()
     }
     if !verneed.is_empty() {
@@ -1790,7 +1791,7 @@ test "parse_elf64_deps extracts interp, needed, runpath and versions" {
 
 ///|
 test "expand_runpath expands $ORIGIN and drops unexpandable entries" {
-  let tokens = lib_token_names(62)
+  let tokens = ["lib/x86_64-linux-gnu"]
   assert_eq(expand_runpath(None, "/opt/bin", tokens), [])
   assert_eq(
     expand_runpath(
@@ -1808,19 +1809,32 @@ test "expand_runpath expands $ORIGIN and drops unexpandable entries" {
 }
 
 ///|
-test "expand_runpath expands $LIB to host library directories" {
+async test "expand_runpath expands $LIB to the host's single value" {
+  guard require_platform() == "linux-x86_64" else { return }
+  // glibc substitutes exactly one distro-specific value for $LIB:
+  // lib/<triplet> on Debian multiarch, lib64 on Fedora-style layouts.
   let tokens = lib_token_names(62)
-  // $LIB alone is relative and stays unusable, but under an absolute
-  // anchor each plausible host value is produced in preference order.
+  assert_eq(tokens.length(), 1)
+  let token = tokens[0]
+  assert_true(
+    token == "lib/x86_64-linux-gnu" || token == "lib64" || token == "lib",
+  )
+  // Under an absolute anchor the single expansion produces exactly one
+  // candidate directory — other plausible-but-wrong dirs must not be
+  // searched (a library only under lib64 fails on Debian).
   assert_eq(expand_runpath(Some("$ORIGIN/$LIB"), "/opt/bin", tokens), [
-    "/opt/bin/lib/x86_64-linux-gnu", "/opt/bin/lib64", "/opt/bin/lib",
+    "/opt/bin/" + token,
   ])
   // The braced ${LIB} form expands the same way.
-  assert_eq(expand_runpath(Some("${ORIGIN}/${LIB}/x"), "/opt/bin", tokens), [
-    "/opt/bin/lib/x86_64-linux-gnu/x", "/opt/bin/lib64/x", "/opt/bin/lib/x",
+  assert_eq(expand_runpath(Some("${ORIGIN}/${LIB}"), "/opt/bin", tokens), [
+    "/opt/bin/" + token,
   ])
-  // Tokens we do not emulate ($PLATFORM) are still dropped.
-  assert_eq(expand_runpath(Some("$ORIGIN/$PLATFORM"), "/opt/bin", tokens), [])
+  // A bare $LIB entry is relative and stays unusable; $PLATFORM is not
+  // emulated and is dropped.
+  assert_eq(
+    expand_runpath(Some("$LIB:$ORIGIN/$PLATFORM"), "/opt/bin", tokens),
+    [],
+  )
 }
 
 ///|
@@ -2214,9 +2228,10 @@ async test "verify_binary_compat honors a $LIB RUNPATH on linux" {
   let install_dir = @fs.tmpdir(prefix="moon-binstall-libtoken")
   defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
   let loader = staged_loader(install_dir)
-  // glibc expands $LIB to lib/<triplet> on Debian multiarch: a private
-  // library placed there satisfies RUNPATH="$ORIGIN/$LIB".
-  let lib_dir = install_dir + "/lib/x86_64-linux-gnu"
+  // A private library under the host's single $LIB expansion satisfies
+  // RUNPATH="$ORIGIN/$LIB".
+  let token = lib_token_names(62)[0]
+  let lib_dir = install_dir + "/" + token
   @fs.mkdir(lib_dir, recursive=true)
   @fs.write_file(
     lib_dir + "/libtokdep.so",
@@ -2232,6 +2247,111 @@ async test "verify_binary_compat honors a $LIB RUNPATH on linux" {
     [],
   )
   verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // Negative: the same library placed in a directory the real loader's
+  // $LIB expansion does NOT name must not satisfy the RUNPATH — other
+  // plausible-but-wrong dirs are not searched (Debian repro).
+  let wrong_dir = install_dir + "/libnotoken"
+  @fs.mkdir(wrong_dir, recursive=true)
+  @fs.write_file(
+    wrong_dir + "/libonlywrong.so",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let wrong = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libonlywrong.so"],
+    Some("$ORIGIN/$LIB"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", wrong, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libonlywrong.so"))
+}
+
+///|
+async test "resolve_soname keeps searching later tiers after an unusable hit" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let wrong_dir = @fs.tmpdir(prefix="moon-binstall-tier-wrong")
+  let good_dir = @fs.tmpdir(prefix="moon-binstall-tier-good")
+  defer (@fs.rmdir(wrong_dir, recursive=true) catch { _ => () })
+  defer (@fs.rmdir(good_dir, recursive=true) catch { _ => () })
+  // LD_LIBRARY_PATH names only an AArch64 file; the ldconfig cache holds
+  // the compatible x86_64 one. glibc skips the foreign object and uses
+  // the system library — the unusable hit must not shadow the next tier.
+  let wrong = wrong_dir + "/libdup.so.1"
+  let good = good_dir + "/libdup.so.1"
+  @fs.write_file(wrong, make_test_elf64(183, 3, None, [], None, [], []))
+  @fs.write_file(good, make_test_elf64(62, 3, None, [], None, [], []))
+  let cache : Map[String, Array[String]] = Map([])
+  cache["libdup.so.1"] = [good]
+  let found = resolve_soname("libdup.so.1", [wrong_dir], cache, [], 62)
+  assert_eq(found, Some(good))
+  // Cross-tier all-unusable still falls back to the first regular file
+  // so the caller can reject it as unusable.
+  cache["libdup.so.1"] = [wrong]
+  let found2 = resolve_soname(
+    "libdup.so.1",
+    [good_dir, wrong_dir],
+    cache,
+    [],
+    62,
+  )
+  assert_eq(found2, Some(good))
+  let found3 = resolve_soname("libdup.so.1", [wrong_dir], Map([]), [], 62)
+  assert_eq(found3, Some(wrong))
+}
+
+///|
+async test "verify_binary_compat inherits DT_RPATH transitively on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-rpath-inherit")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // main -> libfoo -> libbar, all colocated: only main carries a legacy
+  // DT_RPATH ($ORIGIN), and glibc propagates it to libfoo's lookups.
+  @fs.write_file(
+    install_dir + "/libfoo.so.1",
+    make_test_elf64(62, 3, None, ["libbar.so.1"], None, [], []),
+  )
+  @fs.write_file(
+    install_dir + "/libbar.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfoo.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+    rpath_tag=15L,
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // DT_RUNPATH does NOT propagate: with tag 29 instead the same chain
+  // leaves libbar unresolvable.
+  let no_inherit = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfoo.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", no_inherit, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libbar.so.1"))
 }
 
 ///|

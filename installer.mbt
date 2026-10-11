@@ -1500,16 +1500,25 @@ async fn library_dirs() -> Array[String] {
 }
 
 ///|
-/// The directory names `$LIB`/`${LIB}` can expand to on this host.
-/// glibc substitutes the architecture's library subdirectory —
-/// "lib/x86_64-linux-gnu" on Debian multiarch, "lib64" on Fedora-style
-/// layouts — so every plausible value is tried in order.
-fn lib_token_names(host : Int) -> Array[String] {
-  match host {
-    62 => ["lib/x86_64-linux-gnu", "lib64", "lib"]
-    183 => ["lib/aarch64-linux-gnu", "lib64", "lib"]
-    _ => ["lib"]
+/// The single directory name `$LIB`/`${LIB}` expands to on this host.
+/// glibc substitutes exactly one distro-specific value — "lib/<triplet>"
+/// on Debian multiarch, "lib64" on Fedora-style layouts — so probing
+/// which layout directory exists picks the same expansion the real
+/// loader would make; offering several candidates would accept a
+/// library the loader cannot actually find.
+async fn lib_token_names(host : Int) -> Array[String] {
+  let triplet = match host {
+    62 => "x86_64-linux-gnu"
+    183 => "aarch64-linux-gnu"
+    _ => ""
   }
+  if triplet != "" && @fs.exists("/lib/" + triplet) {
+    return ["lib/" + triplet]
+  }
+  if @fs.exists("/lib64") {
+    return ["lib64"]
+  }
+  ["lib"]
 }
 
 ///|
@@ -1561,30 +1570,25 @@ fn expand_runpath(
 }
 
 ///|
-/// Merge LD_LIBRARY_PATH and an object's own RUNPATH/RPATH directories in
-/// the loader's order: the environment precedes DT_RUNPATH, but follows
-/// DT_RPATH when the object carries only the legacy tag. Returns a fresh
-/// list — callers iterate it for several sonames.
+/// Merge the DT_RPATH tier, LD_LIBRARY_PATH and the DT_RUNPATH tier in
+/// the loader's order: the RPATH tier (the object's own DT_RPATH followed
+/// by the ancestors' it inherited) is searched first, then the
+/// environment, then the object's own DT_RUNPATH. Returns a fresh list —
+/// callers iterate it for several sonames.
 fn library_search_dirs(
+  rpath_dirs : Array[String],
   env_dirs : Array[String],
   runpath_dirs : Array[String],
-  rpath_first : Bool,
 ) -> Array[String] {
   let merged : Array[String] = []
-  if rpath_first {
-    for dir in runpath_dirs {
-      merged.push(dir)
-    }
-    for dir in env_dirs {
-      merged.push(dir)
-    }
-  } else {
-    for dir in env_dirs {
-      merged.push(dir)
-    }
-    for dir in runpath_dirs {
-      merged.push(dir)
-    }
+  for dir in rpath_dirs {
+    merged.push(dir)
+  }
+  for dir in env_dirs {
+    merged.push(dir)
+  }
+  for dir in runpath_dirs {
+    merged.push(dir)
   }
   merged
 }
@@ -1704,33 +1708,39 @@ fn ld_library_dirs(value : String?) -> Array[String] {
 ///|
 /// Pick the first candidate library the host can actually load, like
 /// ld.so skipping an incompatible file (wrong e_machine, not an ELF64
-/// ET_DYN) it meets on the search path. When every candidate is regular
-/// but unusable, the first is returned so the caller can report it as an
-/// unusable library rather than as missing.
-async fn pick_usable(paths : Array[String], host : Int) -> String? {
-  let mut fallback : String? = None
+/// ET_DYN) it meets on the search path. The first regular-but-unusable
+/// path seen is recorded into `first_unusable` rather than returned: a
+/// foreign-architecture file in an early search location must not shadow
+/// a compatible library that exists in a later search tier.
+async fn pick_usable(
+  paths : Array[String],
+  host : Int,
+  first_unusable : Ref[String?],
+) -> String? {
   for path in paths {
     if !(@fs.exists(path) && @fs.kind(path) is Regular) {
       continue
     }
-    if fallback is None {
-      fallback = Some(path)
+    if first_unusable.val is None {
+      first_unusable.val = Some(path)
     }
     if elf_file_usable(path, host) {
       return Some(path)
     }
   }
-  fallback
+  None
 }
 
 ///|
 /// Resolve a DT_NEEDED soname to a host path. `search_dirs` already merges
-/// LD_LIBRARY_PATH and the object's RUNPATH/RPATH directories in loader
-/// order; then the ldconfig cache (which can hold several ABI variants of
-/// one soname), and finally the usual library directories. In every
-/// location, an incompatible ELF is skipped just like ld.so skips it, so
-/// a usable sibling in a later directory still wins. Only regular files
-/// count: a FIFO or device at a candidate path could block on open.
+/// the RPATH tier, LD_LIBRARY_PATH and the object's RUNPATH directories in
+/// loader order; then the ldconfig cache (which can hold several ABI
+/// variants of one soname), and finally the usual library directories. In
+/// every location an incompatible ELF is skipped just like ld.so skips it,
+/// and the unusable-file fallback is deferred until all tiers have been
+/// searched so an ABI-incompatible hit early on cannot shadow a usable
+/// library found later. Only regular files count: a FIFO or device at a
+/// candidate path could block on open.
 async fn resolve_soname(
   soname : String,
   search_dirs : Array[String],
@@ -1742,17 +1752,18 @@ async fn resolve_soname(
     let usable = @fs.exists(soname) && @fs.kind(soname) is Regular
     return if usable { Some(soname) } else { None }
   }
+  let first_unusable : Ref[String?] = { val: None, }
   let searched : Array[String] = []
   for dir in search_dirs {
     searched.push(dir + "/" + soname)
   }
-  match pick_usable(searched, host) {
+  match pick_usable(searched, host, first_unusable) {
     Some(found) => return Some(found)
     None => ()
   }
   match cache.get(soname) {
     Some(candidates) =>
-      match pick_usable(candidates, host) {
+      match pick_usable(candidates, host, first_unusable) {
         Some(found) => return Some(found)
         None => ()
       }
@@ -1762,7 +1773,13 @@ async fn resolve_soname(
   for dir in dirs {
     defaults.push(dir + "/" + soname)
   }
-  pick_usable(defaults, host)
+  match pick_usable(defaults, host, first_unusable) {
+    Some(found) => return Some(found)
+    None => ()
+  }
+  // Every candidate in every tier was unusable for this host: report the
+  // first so the caller can reject it as an unusable library.
+  first_unusable.val
 }
 
 ///|
@@ -1835,19 +1852,35 @@ async fn check_library_closure(
   lib_tokens : Array[String],
 ) -> Unit {
   let visited : Map[String, Bool] = Map([])
-  let queue : Array[(String, String, ElfDeps)] = [
-    ("installed binary \{name}", root_dir, root),
+  // Each entry carries the DT_RPATH directories inherited from the
+  // ancestor chain: legacy RPATH propagates to indirect dependencies
+  // (nearest ancestor's first), unlike DT_RUNPATH.
+  let queue : Array[(String, String, ElfDeps, Array[String])] = [
+    ("installed binary \{name}", root_dir, root, []),
   ]
   let mut cursor = 0
   while cursor < queue.length() {
-    let (owner, objdir, objdeps) = queue[cursor]
+    let (owner, objdir, objdeps, inherited) = queue[cursor]
     cursor = cursor + 1
-    let runpath_dirs = expand_runpath(objdeps.runpath, objdir, lib_tokens)
-    let search_dirs = library_search_dirs(
-      env_dirs,
-      runpath_dirs,
-      objdeps.rpath_first,
-    )
+    // This object's own DT_RPATH heads the RPATH tier, followed by the
+    // ancestors'; the whole tier is searched before LD_LIBRARY_PATH.
+    let rpath_tier : Array[String] = []
+    if objdeps.rpath_first {
+      for dir in expand_runpath(objdeps.runpath, objdir, lib_tokens) {
+        rpath_tier.push(dir)
+      }
+    }
+    for dir in inherited {
+      rpath_tier.push(dir)
+    }
+    // DT_RUNPATH applies only to this object's own dependencies and is
+    // searched after LD_LIBRARY_PATH.
+    let runpath_dirs = if !objdeps.rpath_first {
+      expand_runpath(objdeps.runpath, objdir, lib_tokens)
+    } else {
+      []
+    }
+    let search_dirs = library_search_dirs(rpath_tier, env_dirs, runpath_dirs)
     let resolved : Map[String, String] = Map([])
     let missing : Array[String] = []
     let unusable : Array[String] = []
@@ -1889,8 +1922,12 @@ async fn check_library_closure(
           if !visited.contains(found) {
             visited[found] = true
             match library_deps(found) {
+              // Children inherit this object's complete RPATH tier,
+              // which already ends with the ancestors' entries.
               Some(child) =>
-                queue.push(("library \{found}", dirname_of(found), child))
+                queue.push(
+                  ("library \{found}", dirname_of(found), child, rpath_tier),
+                )
               None =>
                 fail(
                   "\{owner} cannot run on this system: library \{found} is not a parseable ELF64 object. Build it from source instead, or pass --skip-compat-check to install anyway.",
@@ -1931,7 +1968,9 @@ async fn check_library_closure(
               visited[found] = true
               match library_deps(found) {
                 Some(child) =>
-                  queue.push(("library \{found}", dirname_of(found), child))
+                  queue.push(
+                    ("library \{found}", dirname_of(found), child, rpath_tier),
+                  )
                 None => ()
               }
             }
@@ -2018,6 +2057,7 @@ async fn verify_binary_compat(
   let env_dirs = ld_library_dirs(@env.get_env_var("LD_LIBRARY_PATH"))
   let cache = ldconfig_map()
   let dirs = library_dirs()
+  let lib_tokens = lib_token_names(host)
   check_library_closure(
     name.to_owned(),
     deps,
@@ -2026,7 +2066,7 @@ async fn verify_binary_compat(
     cache,
     dirs,
     host,
-    lib_token_names(host),
+    lib_tokens,
   )
 }
 
