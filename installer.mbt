@@ -483,6 +483,27 @@ fn curl_report(stderr_text : String) -> Json? {
 }
 
 ///|
+/// Parse the `%{header_json}` write-out curl prints on stderr after the
+/// `%{json}` report: the last line that starts with '['. `%{json}` itself
+/// never carries response headers, and `%{header_json}` needs curl >= 7.84
+/// — older curls print an "unknown variable" notice instead, which this
+/// returns None for (rate-limit classification then degrades to a plain
+/// HTTP status, never a false claim).
+fn curl_headers_json(stderr_text : String) -> Json? {
+  let mut json_line : String? = None
+  for line in stderr_text.split("\n") {
+    let trimmed = line.trim().to_owned()
+    if trimmed.has_prefix("[") {
+      json_line = Some(trimmed)
+    }
+  }
+  match json_line {
+    Some(text) => Some(@json.parse(text)) catch { _ => None }
+    None => None
+  }
+}
+
+///|
 /// The HTTP status observed in a curl `%{json}` report, or None when the
 /// server never produced a response (a transport-level failure).
 fn curl_http_status(report : Json?) -> Int? {
@@ -499,15 +520,25 @@ fn curl_http_status(report : Json?) -> Int? {
 
 ///|
 /// Whether response headers report an exhausted rate limit. Only header
-/// evidence is used — a bare 403 is never called a rate limit.
-fn curl_rate_limited(report : Json?) -> Bool {
-  match report {
-    Some({ "header_json": Array(responses), .. }) => {
-      for headers in responses {
-        if headers
-          is { "x-ratelimit-remaining": String(remaining), .. } &&
-          remaining.trim().to_owned() == "0" {
-          return true
+/// evidence is used — a bare 403 is never called a rate limit. `headers`
+/// is the `%{header_json}` array: one object per response, header names
+/// lowercased, values strings or arrays of strings.
+fn curl_rate_limited(headers : Json?) -> Bool {
+  match headers {
+    Some(Array(responses)) => {
+      for response in responses {
+        match response {
+          { "x-ratelimit-remaining": String(remaining), .. } =>
+            if remaining.trim().to_owned() == "0" {
+              return true
+            }
+          { "x-ratelimit-remaining": Array(values), .. } =>
+            for value in values {
+              if value is String(remaining) && remaining.trim().to_owned() == "0" {
+                return true
+              }
+            }
+          _ => ()
         }
       }
       false
@@ -579,7 +610,7 @@ async fn download(url : String, path : String) -> Unit {
   let args = [
     "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
     "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "300",
-    "--max-filesize", "268435456", "--write-out", "%{stderr}%{json}", "--output",
+    "--max-filesize", "268435456", "--write-out", "%{stderr}%{json}\n%{stderr}%{header_json}", "--output",
     path, url,
   ]
   let response = @shell.Cmd("curl", args).output(timeout_ms=300000)
@@ -590,7 +621,7 @@ async fn download(url : String, path : String) -> Unit {
   }
   match curl_http_status(report) {
     Some(code) if code >= 200 && code < 300 => ()
-    Some(code) => abort_http_status("download the release asset", url, code, curl_rate_limited(report))
+    Some(code) => abort_http_status("download the release asset", url, code, curl_rate_limited(curl_headers_json(response.stderr())))
     None =>
       abort_install(
         Transfer, "download the release asset", url,
@@ -630,7 +661,7 @@ async fn fetch_text(url : String, accept_json : Bool, what : String) -> String? 
   let args = [
       "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
       "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "30",
-      "--max-filesize", "16777216", "--write-out", "%{stderr}%{json}",
+      "--max-filesize", "16777216", "--write-out", "%{stderr}%{json}\n%{stderr}%{header_json}",
     ] +
     headers +
     [url]
@@ -647,7 +678,7 @@ async fn fetch_text(url : String, accept_json : Bool, what : String) -> String? 
     Some(code) if code >= 200 && code < 300 =>
       Some(@utf8.decode(response.stdout_bytes()))
     Some(404) => None
-    Some(code) => abort_http_status(what, url, code, curl_rate_limited(report))
+    Some(code) => abort_http_status(what, url, code, curl_rate_limited(curl_headers_json(response.stderr())))
     None =>
       abort_install(
         Transfer, what, url, "no HTTP status was observed",
