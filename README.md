@@ -93,7 +93,15 @@ Once packaged as a native executable, invoke `moon-binstall` directly.
 GitHub installs require an explicit `owner/repo[@tag]` coordinate. The
 installed executable name comes from the repository name, with a trailing
 `.mbt` removed. For example, `gpui-mbt/hotpath.mbt` installs `hotpath`.
-Short package names such as `turtles`, `hotpath`, and `dsh` are rejected.
+Short package names such as `turtles`, `hotpath`, and `dsh` are rejected
+with a copyable full-coordinate example.
+
+Every resolution prints the coordinate given, the chosen source
+(`github-releases` or `mooncakes+github-releases`), the repository or
+module/package, the selected tag, binary and target before installing. When
+a two-component coordinate returns a confirmed GitHub 404 and a verified
+`<repo>.mbt` candidate exists, the error suggests it; coordinates are never
+rewritten automatically.
 
 ## Install Mooncakes packages
 

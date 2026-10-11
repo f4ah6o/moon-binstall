@@ -28,19 +28,39 @@ pub enum InstallCoordinate {
 pub fn parse_package(input : String) -> Package raise {
   let parts = input.split("@").collect()
   guard parts.length() >= 1 && parts.length() <= 2 else {
-    fail("expected owner/repo[@tag]")
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "expected owner/repo[@tag] or owner/module/package[@version]",
+      action="pass a full coordinate, for example: moon binstall f4ah6o/dsh.mbt",
+    )
   }
   let coordinate = parts[0].to_owned()
   let version = if parts.length() == 2 {
-    guard valid_tag(parts[1].to_owned()) else { fail("unsafe or empty tag") }
+    guard valid_tag(parts[1].to_owned()) else {
+      abort_install(
+        Coordinate, "parse coordinate", input,
+        "the release tag is empty or contains unsafe characters",
+        action="use a tag like v1.2.3",
+      )
+    }
     Some(parts[1].to_owned())
   } else {
     None
   }
   let path = coordinate.split("/").collect()
-  guard path.length() == 2 else { fail("expected owner/repo[@tag]") }
+  guard path.length() == 2 else {
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "expected owner/repo[@tag] or owner/module/package[@version]",
+      action="pass a full coordinate, for example: moon binstall f4ah6o/dsh.mbt",
+    )
+  }
   guard valid_id(path[0].to_owned()) && valid_id(path[1].to_owned()) else {
-    fail("unsafe GitHub repository coordinate")
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "the owner or repository name contains unsafe characters",
+      action="use letters, digits, '-', '_' or '.'",
+    )
   }
   let name = path[1].to_owned()
   let binary = if name.has_suffix(".mbt") {
@@ -48,7 +68,12 @@ pub fn parse_package(input : String) -> Package raise {
   } else {
     name
   }
-  guard binary != "" else { fail("repository name has an empty binary name") }
+  guard binary != "" else {
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "the repository name produces an empty binary name",
+    )
+  }
   let resolved = (path[0].to_owned(), path[1].to_owned(), binary)
   { owner: resolved.0, repo: resolved.1, binary: resolved.2, version, }
 }
@@ -62,7 +87,11 @@ pub fn parse_package(input : String) -> Package raise {
 pub fn parse_coordinate(input : String) -> InstallCoordinate raise {
   let parts = input.split("@").collect()
   guard parts.length() >= 1 && parts.length() <= 2 else {
-    fail("expected owner/repo[@tag] or owner/module/package[@version]")
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "expected owner/repo[@tag] or owner/module/package[@version]",
+      action="pass a full coordinate, for example: moon binstall f4ah6o/dsh.mbt",
+    )
   }
   let coordinate = parts[0].to_owned()
   let path = coordinate.split("/").collect()
@@ -71,19 +100,31 @@ pub fn parse_coordinate(input : String) -> InstallCoordinate raise {
   }
   let version = if parts.length() == 2 {
     guard valid_registry_version(parts[1].to_owned()) else {
-      fail("unsafe or empty version")
+      abort_install(
+        Coordinate, "parse coordinate", input,
+        "the version is empty or contains unsafe characters",
+        action="use a version like 1.2.3",
+      )
     }
     Some(parts[1].to_owned())
   } else {
     None
   }
   guard valid_id(path[0].to_owned()) && valid_id(path[1].to_owned()) else {
-    fail("unsafe Mooncakes module coordinate")
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "the Mooncakes module name contains unsafe characters",
+      action="use letters, digits, '-', '_' or '.'",
+    )
   }
   let mut package_path = ""
   for i = 2; i < path.length(); i = i + 1 {
     guard valid_id(path[i].to_owned()) else {
-      fail("unsafe Mooncakes package path")
+      abort_install(
+        Coordinate, "parse coordinate", input,
+        "the Mooncakes package path contains unsafe characters",
+        action="use letters, digits, '-', '_' or '.'",
+      )
     }
     if package_path != "" {
       package_path = package_path + "/"
@@ -91,7 +132,12 @@ pub fn parse_coordinate(input : String) -> InstallCoordinate raise {
     package_path = package_path + path[i].to_owned()
   }
   let binary = binary_from_package_path(package_path)
-  guard binary != "" else { fail("package path has an empty binary name") }
+  guard binary != "" else {
+    abort_install(
+      Coordinate, "parse coordinate", input,
+      "the package path produces an empty binary name",
+    )
+  }
   Mooncakes({
     module_path: path[0].to_owned() + "/" + path[1].to_owned(),
     package_path,
@@ -108,32 +154,55 @@ pub fn parse_module_package(
 ) -> MooncakesPackage raise {
   let parts = input.split("@").collect()
   guard parts.length() >= 1 && parts.length() <= 2 else {
-    fail("expected package/path[@version]")
+    abort_install(
+      Coordinate, "parse package path", input,
+      "expected package/path[@version]",
+    )
   }
   let module_parts = module_path.split("/").collect()
   guard module_parts.length() == 2 &&
     valid_id(module_parts[0].to_owned()) &&
     valid_id(module_parts[1].to_owned()) else {
-    fail("--module must be owner/module")
+    abort_install(
+      Coordinate, "parse --module", module_path,
+      "--module must be owner/module",
+    )
   }
   let version = if parts.length() == 2 {
     guard valid_registry_version(parts[1].to_owned()) else {
-      fail("unsafe or empty version")
+      abort_install(
+        Coordinate, "parse package path", input,
+        "the version is empty or contains unsafe characters",
+        action="use a version like 1.2.3",
+      )
     }
     Some(parts[1].to_owned())
   } else {
     None
   }
   let package_parts = parts[0].to_owned().split("/").collect()
-  guard package_parts.length() > 0 else { fail("missing package path") }
+  guard package_parts.length() > 0 else {
+    abort_install(
+      Coordinate, "parse package path", input, "missing package path",
+    )
+  }
   for part in package_parts {
     guard valid_id(part.to_owned()) else {
-      fail("unsafe Mooncakes package path")
+      abort_install(
+        Coordinate, "parse package path", input,
+        "the Mooncakes package path contains unsafe characters",
+        action="use letters, digits, '-', '_' or '.'",
+      )
     }
   }
   let package_path = parts[0].to_owned()
   let binary = binary_from_package_path(package_path)
-  guard binary != "" else { fail("package path has an empty binary name") }
+  guard binary != "" else {
+    abort_install(
+      Coordinate, "parse package path", input,
+      "the package path produces an empty binary name",
+    )
+  }
   MooncakesPackage::{ module_path, package_path, binary, version, }
 }
 
@@ -219,12 +288,16 @@ pub fn platform_key(os : String, cpu : String) -> String raise {
   let system = match os {
     "Linux" => "linux"
     "Darwin" => "darwin"
-    _ => fail("unsupported OS: \{os} (Linux/macOS only)")
+    _ =>
+      abort_install(
+        Compat, "detect platform", os,
+        "unsupported OS (Linux/macOS only)",
+      )
   }
   let arch = match cpu {
     "x86_64" | "amd64" => "x86_64"
     "arm64" | "aarch64" => "aarch64"
-    _ => fail("unsupported CPU: \{cpu}")
+    _ => abort_install(Compat, "detect platform", cpu, "unsupported CPU")
   }
   "\{system}-\{arch}"
 }
@@ -273,7 +346,12 @@ pub fn resolve_release_names(
       payload, owner, repo, expected_names, expected_tag,
     ) {
     Some(asset) => asset
-    None => fail("no matching prebuilt asset in release")
+    None =>
+      abort_install(
+        Resolve, "resolve release asset", "\{owner}/\{repo}",
+        "no matching prebuilt asset in the release",
+        action="check that the release publishes an asset for this target",
+      )
   }
 }
 
@@ -289,27 +367,45 @@ pub fn resolve_release_names_optional(
 ) -> ReleaseAsset? raise {
   let document = @json.parse(payload)
   guard document is { "tag_name": String(tag), "assets": Array(assets), .. } else {
-    fail("invalid GitHub release response")
+    abort_install(
+      Resolve, "read release metadata", "\{owner}/\{repo}",
+      "the GitHub release response was not valid JSON metadata",
+      action="retry; if it persists the release metadata may be malformed",
+    )
   }
-  guard expected_names.length() > 0 else { fail("no expected release assets") }
+  guard expected_names.length() > 0 else {
+    abort_install(
+      Resolve, "read release metadata", "\{owner}/\{repo}",
+      "no expected release assets",
+    )
+  }
   match expected_tag {
     Some(expected) =>
       if tag != expected {
-        fail("GitHub returned tag \{tag}, expected \{expected}")
+        abort_install(
+          Resolve, "read release metadata", "\{owner}/\{repo}",
+          "GitHub returned tag \{tag}, expected \{expected}",
+        )
       }
     None => ()
   }
   let origin = "https://github.com/\{owner}/\{repo}/releases/download/\{tag}/"
   for expected in expected_names {
     guard valid_asset_name(expected) else {
-      fail("unsafe expected release asset name")
+      abort_install(
+        Resolve, "read release metadata", expected,
+        "the expected release asset name is unsafe",
+      )
     }
     let mut matched : ReleaseAsset? = None
     for entry in assets {
       match entry {
         { "name": String(name), .. } if name == expected => {
           if matched is Some(_) {
-            fail("duplicate release asset name: \{name}")
+            abort_install(
+              Resolve, "read release metadata", name,
+              "the release lists a duplicate asset name",
+            )
           }
           let (url, digest) = match entry {
             {
@@ -317,13 +413,23 @@ pub fn resolve_release_names_optional(
               "digest": String(digest),
               ..
             } => (url, digest)
-            _ => fail("release asset metadata is incomplete: \{name}")
+            _ =>
+              abort_install(
+                Resolve, "read release metadata", name,
+                "the release asset metadata is incomplete",
+              )
           }
           guard valid_github_digest(digest) else {
-            fail("release asset has no valid SHA-256 digest")
+            abort_install(
+              Resolve, "read release metadata", name,
+              "the release asset has no valid SHA-256 digest",
+            )
           }
           guard url == origin + expected else {
-            fail("release asset URL is not in the requested repository")
+            abort_install(
+              Resolve, "read release metadata", name,
+              "the release asset URL is not in the requested repository",
+            )
           }
           matched = Some({
             url,

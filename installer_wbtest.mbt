@@ -210,6 +210,7 @@ async fn make_registry_fixture_transport(
       (cli_url, cli_archive),
       (worker_url, worker_archive),
     ],
+    failures: [],
   }
 }
 
@@ -235,6 +236,7 @@ async fn make_target_override_transport(root : String) -> FixtureTransport {
   {
     responses: [(metadata_url, metadata), (release_url, release)],
     files: [(source_url, source_zip), (asset_url, archive)],
+    failures: [],
   }
 }
 
@@ -266,6 +268,7 @@ async fn make_case_collision_transport(root : String) -> FixtureTransport {
       (lower_url, lower_binary),
       (upper_url, upper_binary),
     ],
+    failures: [],
   }
 }
 
@@ -1103,7 +1106,7 @@ async test "Mooncakes exact metadata resolves source manifest and installs a two
   assert_eq(@fs.read_file(output + "/worker").text(), "worker-fixture\n")
   assert_true(@fs.can_execute(output + "/cli"))
   assert_true(@fs.can_execute(output + "/worker"))
-  assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
+  assert_eq(@fs.readdir(output, include_hidden=true).length(), 3)
 }
 
 ///|
@@ -1157,7 +1160,7 @@ async test "explicit v-prefixed GitHub tag uses normalized version in archive te
     "linux-x86_64",
     root,
     0,
-    Fixture({ responses: [(api, payload)], files: [], }),
+    Fixture({ responses: [(api, payload)], files: [], failures: [] }),
   )
   assert_eq(resolved.asset.tag, "v1.2.3")
   assert_eq(resolved.asset.name, asset_name)
@@ -1278,6 +1281,7 @@ async test "local manifest skips Mooncakes lookup and force replaces a regular b
   let transport = FixtureTransport::{
     responses: [full_transport.responses[2]],
     files: [full_transport.files[1]],
+    failures: [],
   }
   let options = parse_batch_options([
     "acme/toolkit/cmd/cli@1.2.3",
@@ -1321,6 +1325,7 @@ async test "ordered target overrides select matching URL format and member path"
     "linux-x86_64",
     Some(config_set),
     options,
+    "fixture-source",
   )
   assert_eq(plan.install.asset.name, asset_name)
   assert_eq(plan.install.format, "zip")
@@ -1359,6 +1364,7 @@ async test "CLI artifact options override target metadata and explicit path neve
     "linux-x86_64",
     Some(config_set),
     options,
+    "fixture-source",
   )
   assert_eq(plan.install.asset.name, asset_name)
   assert_eq(plan.install.format, "zip")
@@ -1377,7 +1383,7 @@ async test "CLI artifact options override target metadata and explicit path neve
         0,
         true,
         false,
-        Fixture({ responses: [], files: [(asset_url, archive)], }),
+        Fixture({ responses: [], files: [(asset_url, archive)], failures: [] }),
       ),
     )
     ""
@@ -1425,6 +1431,7 @@ test "CLI URL override does not mask an invalid declared target URL" {
         "linux-x86_64",
         Some(config_set),
         options,
+        "fixture-source",
       ),
     )
     ""
@@ -1447,7 +1454,7 @@ async test "Mooncakes target fallback uses whitespace metadata and discovers nes
   install_many_using(options, Fixture(transport))
   assert_eq(@fs.read_file(output + "/cli").text(), "discovered cli\n")
   assert_true(@fs.can_execute(output + "/cli"))
-  assert_eq(@fs.readdir(output, include_hidden=true).length(), 1)
+  assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
 }
 
 ///|
@@ -1484,6 +1491,7 @@ async test "second archive discovery failure preserves both forced destinations"
       (first_url, first_archive),
       (second_url, second_archive),
     ],
+    failures: [],
   }
   let output = root + "/installed"
   @fs.mkdir(output)
@@ -2710,6 +2718,7 @@ async test "declared glibc-min aborts install before download on linux" {
   let transport = FixtureTransport::{
     responses: [full_transport.responses[2]],
     files: [],
+    failures: [],
   }
   let options = parse_batch_options([
     "acme/toolkit/cmd/cli@1.2.3",
@@ -2747,6 +2756,7 @@ async test "declared glibc-min does not apply to a cross-architecture fetch" {
   let transport = FixtureTransport::{
     responses: [(release_url, release)],
     files: [(asset_url, arm_asset)],
+    failures: [],
   }
   let options = parse_batch_options([
     "acme/toolkit/cmd/cli@1.2.3",
@@ -2780,4 +2790,377 @@ async test "elf_file_usable accepts a full ELF and a symlink to it" {
   let whole = make_test_elf64(62, 3, None, [], None, [], [])
   @fs.write_file(short, whole[:20].to_owned())
   assert_true(!elf_file_usable(short, 62))
+}
+
+///|
+async test "confirmed HTTP 404 keeps resolver not-found control flow" {
+  let url = "https://api.github.com/repos/acme/missing/releases/latest"
+  let transport = FixtureTransport::{
+    responses: [],
+    files: [],
+    failures: [(url, HttpStatus(404))],
+  }
+  let result = fetch_text_using(
+    url,
+    true,
+    "query the GitHub release",
+    Fixture(transport),
+  )
+  assert_eq(result, None)
+}
+
+///|
+async test "HTTP failures classify as transport, never as not-found" {
+  let url = "https://api.github.com/repos/acme/tool/releases/latest"
+  for status in [403, 429, 500, 503] {
+    let transport = FixtureTransport::{
+      responses: [],
+      files: [],
+      failures: [(url, HttpStatus(status))],
+    }
+    let rejected = try {
+      ignore(fetch_text_using(url, true, "query", Fixture(transport)))
+      false
+    } catch {
+      InstallError(stage=Transfer, reason~, ..) =>
+        reason.contains("HTTP \{status}")
+      _ => false
+    }
+    assert_true(rejected)
+  }
+}
+
+///|
+async test "transport exit without status is a communication failure" {
+  let url = "https://api.github.com/repos/acme/tool/releases/latest"
+  let transport = FixtureTransport::{
+    responses: [],
+    files: [],
+    failures: [(url, TransportExit(6))],
+  }
+  let rejected = try {
+    ignore(fetch_text_using(url, true, "query", Fixture(transport)))
+    false
+  } catch {
+    InstallError(stage=Transfer, reason~, ..) =>
+      reason.contains("communication failed")
+    _ => false
+  }
+  assert_true(rejected)
+}
+
+///|
+test "classified errors render operation, target, reason and action" {
+  let rendered = render_error(
+    InstallError(
+      stage=Resolve,
+      what="query the GitHub release",
+      target="acme/tool",
+      reason="no release was confirmed",
+      action="check the repository name and tag",
+    ),
+  )
+  assert_eq(
+    rendered,
+    "moon-binstall: error[resolve]: query the GitHub release\n  target: acme/tool\n  reason: no release was confirmed\n  action: check the repository name and tag",
+  )
+}
+
+///|
+test "classified errors omit empty target and action lines" {
+  let rendered = render_error(
+    InstallError(
+      stage=Destination,
+      what="check the destination",
+      target="",
+      reason="already exists",
+      action="",
+    ),
+  )
+  assert_eq(
+    rendered, "moon-binstall: error[destination]: check the destination\n  reason: already exists",
+  )
+  assert_true(!rendered.contains("FAILED"))
+  assert_true(!rendered.contains(".mbt:"))
+}
+
+///|
+async test "confirmed 404 suggests a verified .mbt candidate without switching" {
+  let api = "https://api.github.com/repos/acme/tool/releases/latest"
+  let candidate_api = "https://api.github.com/repos/acme/tool.mbt/releases/latest"
+  let candidate_release = "{\"tag_name\":\"v9.9.9\",\"assets\":[]}"
+  let transport = FixtureTransport::{
+    responses: [(candidate_api, candidate_release)],
+    files: [],
+    failures: [(api, HttpStatus(404))],
+  }
+  let options = parse_batch_options(["acme/tool", "--target", "linux-x86_64"])
+  let rejected = try {
+    ignore(
+      resolve_package(
+        options.coordinates[0],
+        options,
+        "linux-x86_64",
+        @fs.tmpdir(prefix="moon-binstall-suggest"),
+        0,
+        Fixture(transport),
+      ),
+    )
+    ""
+  } catch {
+    InstallError(stage=Resolve, reason~, ..) => reason
+    _ => ""
+  }
+  assert_true(rejected.contains("acme/tool"))
+  assert_true(rejected.contains("did you mean acme/tool.mbt"))
+}
+
+///|
+async test "missing repository without a verified candidate stays unexplained" {
+  let api = "https://api.github.com/repos/acme/tool/releases/latest"
+  let candidate_api = "https://api.github.com/repos/acme/tool.mbt/releases/latest"
+  let transport = FixtureTransport::{
+    responses: [],
+    files: [],
+    failures: [(api, HttpStatus(404)), (candidate_api, HttpStatus(404))],
+  }
+  let options = parse_batch_options(["acme/tool", "--target", "linux-x86_64"])
+  let rejected = try {
+    ignore(
+      resolve_package(
+        options.coordinates[0],
+        options,
+        "linux-x86_64",
+        @fs.tmpdir(prefix="moon-binstall-nosuggest"),
+        0,
+        Fixture(transport),
+      ),
+    )
+    ""
+  } catch {
+    InstallError(stage=Resolve, reason~, ..) => reason
+    _ => ""
+  }
+  assert_true(rejected.contains("acme/tool"))
+  assert_true(!rejected.contains("did you mean"))
+}
+
+///|
+async fn make_github_release_transport(
+  root : String,
+  tag : String,
+  version : String,
+  content : String,
+) -> FixtureTransport {
+  let asset_name = "tool-linux-x86_64"
+  let binary_path = root + "/tool-\{version}.bin"
+  @fs.write_file(binary_path, content)
+  let digest = fixture_digest(binary_path)
+  let asset_url = "https://github.com/acme/tool/releases/download/\{tag}/\{asset_name}"
+  let api = "https://api.github.com/repos/acme/tool/releases/tags/\{tag}"
+  let release = "{\"tag_name\":\"\{tag}\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  {
+    responses: [(api, release)],
+    files: [(asset_url, binary_path)],
+    failures: [],
+  }
+}
+
+///|
+fn github_options(bin_dir : String, tag : String, force : Bool) -> BatchOptions raise {
+  let argv = if force {
+    ["acme/tool@\{tag}", "--target", "linux-x86_64", "--bin-dir", bin_dir,
+      "--force"]
+  } else {
+    ["acme/tool@\{tag}", "--target", "linux-x86_64", "--bin-dir", bin_dir]
+  }
+  parse_batch_options(argv)
+}
+
+///|
+async test "identical verified binary skips the reinstall and keeps a receipt" {
+  let root = @fs.tmpdir(prefix="moon-binstall-idempotent")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  let transport = make_github_release_transport(
+    root, "v1.2.3", "1.2.3", "tool-bytes\n",
+  )
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(transport),
+  )
+  let destination = bin_dir + "/tool"
+  assert_eq(@fs.read_file(destination).text(), "tool-bytes\n")
+  assert_true(@fs.exists(receipt_path(bin_dir, "tool")))
+  // Second run: identical digest skips staging entirely — exit success.
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(transport),
+  )
+  assert_eq(@fs.read_file(destination).text(), "tool-bytes\n")
+}
+
+///|
+async test "managed binary updates to a newer verified candidate without force" {
+  let root = @fs.tmpdir(prefix="moon-binstall-managed-update")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(make_github_release_transport(root, "v1.2.3", "1.2.3", "old\n")),
+  )
+  install_many_using(
+    github_options(bin_dir, "v1.2.4", false),
+    Fixture(make_github_release_transport(root, "v1.2.4", "1.2.4", "new\n")),
+  )
+  assert_eq(@fs.read_file(bin_dir + "/tool").text(), "new\n")
+}
+
+///|
+async test "unmanaged existing content refuses without force and explains" {
+  let root = @fs.tmpdir(prefix="moon-binstall-unmanaged")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  @fs.mkdir(bin_dir)
+  @fs.write_file(bin_dir + "/tool", "foreign-tool\n")
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(
+        make_github_release_transport(root, "v1.2.3", "1.2.3", "tool-bytes\n"),
+      ),
+    )
+    false
+  } catch {
+    InstallError(stage=Destination, reason~, action~, ..) =>
+      reason.contains("not installed by moon-binstall") &&
+        action.contains("--force")
+    _ => false
+  }
+  assert_true(rejected)
+  assert_eq(@fs.read_file(bin_dir + "/tool").text(), "foreign-tool\n")
+}
+
+///|
+async test "unmanaged identical content skips without a receipt" {
+  let root = @fs.tmpdir(prefix="moon-binstall-foreign-same")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  @fs.mkdir(bin_dir)
+  let transport = make_github_release_transport(
+    root, "v1.2.3", "1.2.3", "same-bytes\n",
+  )
+  // The exact verified content is present but no receipt exists yet.
+  @fs.write_file(
+    bin_dir + "/tool",
+    @fs.read_file(root + "/tool-1.2.3.bin").binary(),
+  )
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(transport),
+  )
+  assert_eq(@fs.read_file(bin_dir + "/tool").text(), "same-bytes\n")
+  // A receipt is recorded so future runs can manage updates.
+  assert_true(@fs.exists(receipt_path(bin_dir, "tool")))
+}
+
+///|
+async test "a binary modified after install refuses the update" {
+  let root = @fs.tmpdir(prefix="moon-binstall-tampered")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  let transport = make_github_release_transport(
+    root, "v1.2.3", "1.2.3", "tool-bytes\n",
+  )
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(transport),
+  )
+  @fs.write_file(bin_dir + "/tool", "hand-edited\n")
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(transport),
+    )
+    false
+  } catch {
+    InstallError(stage=Destination, reason~, ..) =>
+      reason.contains("modified after install")
+    _ => false
+  }
+  assert_true(rejected)
+}
+
+///|
+async test "a downgrade candidate refuses on a managed binary" {
+  let root = @fs.tmpdir(prefix="moon-binstall-downgrade")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  install_many_using(
+    github_options(bin_dir, "v1.2.4", false),
+    Fixture(make_github_release_transport(root, "v1.2.4", "1.2.4", "newer\n")),
+  )
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(
+        make_github_release_transport(root, "v1.2.3", "1.2.3", "older\n"),
+      ),
+    )
+    false
+  } catch {
+    InstallError(stage=Destination, reason~, action~, ..) =>
+      reason.contains("older than") && action.contains("--force")
+    _ => false
+  }
+  assert_true(rejected)
+  assert_eq(@fs.read_file(bin_dir + "/tool").text(), "newer\n")
+}
+
+///|
+async test "another package's same-named binary refuses the replacement" {
+  let root = @fs.tmpdir(prefix="moon-binstall-foreign-receipt")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  let transport = make_github_release_transport(
+    root, "v1.2.3", "1.2.3", "tool-bytes\n",
+  )
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(transport),
+  )
+  // Rewrite the stored receipt as if a different package owned the binary.
+  let path = receipt_path(bin_dir, "tool")
+  let stored = match read_receipt_file(path) {
+    Some(value) => value
+    None => abort("receipt must exist")
+  }
+  @fs.write_file(
+    path,
+    "{\"version\":1,\"coordinate\":\"other/mod/cmd/tool\",\"source\":\"mooncakes+github-releases\",\"repository\":\"other/repo\",\"package\":\"other/pkg\",\"binary\":\"tool\",\"target\":\"linux-x86_64\",\"tag\":\"v1.2.3\",\"digest\":\"\{stored.digest}\",\"destination\":\"\{stored.destination}\"}\n",
+  )
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.4", false),
+      Fixture(
+        make_github_release_transport(root, "v1.2.4", "1.2.4", "newer\n"),
+      ),
+    )
+    false
+  } catch {
+    InstallError(stage=Destination, reason~, ..) =>
+      reason.contains("different package")
+    _ => false
+  }
+  assert_true(rejected)
+}
+
+///|
+test "semver comparison only orders strict three-part versions" {
+  assert_eq(semver_compare("v1.2.4", "1.2.3"), Some(1))
+  assert_eq(semver_compare("1.0.0", "v1.0.0"), Some(0))
+  assert_eq(semver_compare("0.9.9", "v1.0.0"), Some(-1))
+  assert_eq(semver_compare("nightly", "v1.0.0"), None)
+  assert_eq(semver_compare("v1.2", "v1.2.3"), None)
+  assert_eq(semver_compare("v1.2.3-beta", "v1.2.3"), None)
 }

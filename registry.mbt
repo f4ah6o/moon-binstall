@@ -17,11 +17,19 @@ pub fn mooncakes_manifest_url(
   guard parts.length() == 2 &&
     valid_id(parts[0].to_owned()) &&
     valid_id(parts[1].to_owned()) else {
-    fail("Mooncakes module must be owner/module")
+    abort_install(
+      Coordinate, "build Mooncakes manifest URL", module_path,
+      "a Mooncakes module must be owner/module",
+    )
   }
   let version_suffix = match version {
     Some(v) => {
-      guard valid_registry_version(v) else { fail("unsafe Mooncakes version") }
+      guard valid_registry_version(v) else {
+        abort_install(
+          Coordinate, "build Mooncakes manifest URL", v,
+          "the Mooncakes version is unsafe",
+        )
+      }
       "@" + v
     }
     None => ""
@@ -39,7 +47,10 @@ pub fn mooncakes_source_url(
     valid_id(parts[0].to_owned()) &&
     valid_id(parts[1].to_owned()) &&
     valid_registry_version(version) else {
-    fail("unsafe Mooncakes source coordinate")
+    abort_install(
+      Coordinate, "build Mooncakes source URL", module_path,
+      "unsafe Mooncakes source coordinate",
+    )
   }
   "https://download.mooncakes.io/user/\{parts[0]}/\{parts[1]}/\{version}.zip"
 }
@@ -65,22 +76,42 @@ pub fn resolve_registry_release(
       },
       ..
     } else {
-    fail("invalid Mooncakes registry response")
+    abort_install(
+      Resolve, "read Mooncakes metadata", expected_module,
+      "the Mooncakes registry response was not valid metadata",
+      action="retry; if it persists the registry response may be malformed",
+    )
   }
   guard actual_module == expected_module else {
-    fail("Mooncakes returned a different module: \{actual_module}")
+    abort_install(
+      Resolve, "read Mooncakes metadata", expected_module,
+      "Mooncakes returned a different module: \{actual_module}",
+    )
   }
   guard valid_registry_version(version) else {
-    fail("Mooncakes returned an unsafe release version")
+    abort_install(
+      Resolve, "read Mooncakes metadata", expected_module,
+      "Mooncakes returned an unsafe release version",
+    )
   }
   if expected_version is Some(expected) && version != expected {
-    fail("Mooncakes returned version \{version}, expected \{expected}")
+    abort_install(
+      Resolve, "read Mooncakes metadata", expected_module,
+      "Mooncakes returned version \{version}, expected \{expected}",
+    )
   }
   if document is { "yanked": true, .. } {
-    fail("Mooncakes release is yanked: \{actual_module}@\{version}")
+    abort_install(
+      Resolve, "read Mooncakes metadata", expected_module,
+      "the Mooncakes release is yanked: \{actual_module}@\{version}",
+      action="choose a different version or package",
+    )
   }
   guard valid_sha256_hex(checksum) else {
-    fail("Mooncakes release has no valid source checksum")
+    abort_install(
+      Resolve, "read Mooncakes metadata", expected_module,
+      "the Mooncakes release has no valid source checksum",
+    )
   }
   let (owner, repo) = parse_github_repository(repository)
   {
@@ -95,14 +126,20 @@ pub fn resolve_registry_release(
 pub fn parse_github_repository(repository : String) -> (String, String) raise {
   let prefix = "https://github.com/"
   guard repository.has_prefix(prefix) else {
-    fail("Mooncakes repository must be an HTTPS GitHub URL")
+    abort_install(
+      Resolve, "read Mooncakes metadata", repository,
+      "the Mooncakes repository must be an HTTPS GitHub URL",
+    )
   }
   let suffix = repository[prefix.length():].to_owned()
   guard !suffix.has_suffix("/") &&
     !suffix.has_prefix("/") &&
     !suffix.contains("?") &&
     !suffix.contains("#") else {
-    fail("unsafe GitHub repository URL")
+    abort_install(
+      Resolve, "read Mooncakes metadata", repository,
+      "the GitHub repository URL is unsafe",
+    )
   }
   let path = if suffix.has_suffix(".git") {
     suffix[:suffix.length() - 4].to_owned()
@@ -113,7 +150,10 @@ pub fn parse_github_repository(repository : String) -> (String, String) raise {
   guard parts.length() == 2 &&
     valid_id(parts[0].to_owned()) &&
     valid_id(parts[1].to_owned()) else {
-    fail("unsafe GitHub repository URL")
+    abort_install(
+      Resolve, "read Mooncakes metadata", repository,
+      "the GitHub repository URL is unsafe",
+    )
   }
   (parts[0].to_owned(), parts[1].to_owned())
 }
@@ -135,11 +175,19 @@ pub fn valid_sha256_hex(value : String) -> Bool {
 
 ///|
 pub async fn verify_sha256_hex(path : String, expected : String) -> Unit {
-  guard valid_sha256_hex(expected) else { fail("invalid SHA-256 checksum") }
+  guard valid_sha256_hex(expected) else {
+    abort_install(
+      Digest, "verify checksum", path, "the expected checksum is not valid SHA-256",
+    )
+  }
   let actual = @crypto.bytes_to_hex_string(
     @crypto.sha256(@fs.read_file(path).binary()),
   )
   guard actual == expected.to_lower() else {
-    fail("SHA-256 verification failed: expected \{expected}, got \{actual}")
+    abort_install(
+      Digest, "verify checksum", path,
+      "SHA-256 verification failed: expected \{expected}, got \{actual}",
+      action="nothing was installed; the fetched content did not match the declared checksum",
+    )
   }
 }
