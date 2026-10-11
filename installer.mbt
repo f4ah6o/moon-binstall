@@ -1065,24 +1065,363 @@ fn elf_machine(binary : Bytes) -> Int? {
 }
 
 ///|
-/// Collect the `ldd` output lines that report an unresolved library, such as
-/// "libc.so.6 => not found" or "version `GLIBC_2.38' not found". Static
-/// binaries ("not a dynamic executable") produce none.
-fn unresolved_libraries(ldd_output : String) -> Array[String] {
+/// Dependencies extracted from a little-endian ELF64 file without executing
+/// it: the PT_INTERP loader path, DT_NEEDED sonames, and required GLIBC_*
+/// symbol versions.
+priv struct ElfDeps {
+  interp : String?
+  needed : Array[String]
+  glibc_versions : Array[String]
+}
+
+///|
+fn elf_u16le(binary : Bytes, offset : Int) -> Int {
+  binary[offset].to_int() | (binary[offset + 1].to_int() << 8)
+}
+
+///|
+fn elf_u32le(binary : Bytes, offset : Int) -> Int {
+  binary[offset].to_int() |
+  (binary[offset + 1].to_int() << 8) |
+  (binary[offset + 2].to_int() << 16) |
+  (binary[offset + 3].to_int() << 24)
+}
+
+///|
+fn elf_u64le(binary : Bytes, offset : Int) -> Int64 {
+  let mut value = 0L
+  for i = 0; i < 8; i = i + 1 {
+    value = value | (binary[offset + i].to_int().to_int64() << (i * 8))
+  }
+  value
+}
+
+///|
+fn elf_cstr(binary : Bytes, offset : Int) -> String {
+  let bytes : Array[Byte] = []
+  let mut cursor = offset
+  while cursor < binary.length() && binary[cursor].to_int() != 0 {
+    bytes.push(binary[cursor])
+    cursor = cursor + 1
+  }
+  @utf8.decode_lossy(Bytes::from_array(bytes))
+}
+
+///|
+/// Map an ELF virtual address to a file offset through the PT_LOAD segments.
+fn elf_vaddr_offset(
+  loads : Array[(Int64, Int64, Int64)],
+  target : Int64,
+) -> Int64? {
+  for segment in loads {
+    let (vaddr, offset, filesz) = segment
+    if target >= vaddr && target < vaddr + filesz {
+      return Some(offset + (target - vaddr))
+    }
+  }
+  None
+}
+
+///|
+/// Parse a little-endian ELF64 file's program headers and .dynamic section
+/// for its runtime dependencies, or None for other formats. Malformed or
+/// truncated input yields None rather than an error — the caller then
+/// skips the check instead of rejecting the artifact.
+fn parse_elf64_deps(binary : Bytes) -> ElfDeps? {
+  guard binary.length() >= 64 &&
+    binary[0].to_int() == 0x7f &&
+    binary[1] == b'E' &&
+    binary[2] == b'L' &&
+    binary[3] == b'F' &&
+    binary[4].to_int() == 2 &&
+    binary[5].to_int() == 1 else {
+    return None
+  }
+  let phoff = elf_u64le(binary, 32).to_int()
+  let phentsize = elf_u16le(binary, 54)
+  let phnum = elf_u16le(binary, 56)
+  guard phoff >= 0 && phnum > 0 && phnum < 4096 && phentsize >= 56 else {
+    return None
+  }
+  let loads : Array[(Int64, Int64, Int64)] = []
+  let mut interp : String? = None
+  let mut dyn_offset = -1
+  let mut dyn_size = 0L
+  for i = 0; i < phnum; i = i + 1 {
+    let p = phoff + i * phentsize
+    guard p + 56 <= binary.length() else { return None }
+    let ptype = elf_u32le(binary, p)
+    if ptype == 1 {
+      loads.push(
+        (
+          elf_u64le(binary, p + 16),
+          elf_u64le(binary, p + 8),
+          elf_u64le(binary, p + 32),
+        ),
+      )
+    } else if ptype == 3 {
+      let offset = elf_u64le(binary, p + 8)
+      let size = elf_u64le(binary, p + 32)
+      if size > 0L && offset >= 0L && offset + size <= binary.length().to_int64() {
+        interp = Some(elf_cstr(binary, offset.to_int()))
+      }
+    } else if ptype == 2 {
+      dyn_offset = elf_u64le(binary, p + 8).to_int()
+      dyn_size = elf_u64le(binary, p + 32)
+    }
+  }
+  let needed : Array[String] = []
+  let glibc_versions : Array[String] = []
+  if dyn_offset >= 0 {
+    parse_dynamic_deps(
+      binary, dyn_offset, dyn_size, loads, needed, glibc_versions,
+    )
+  }
+  Some({ interp, needed, glibc_versions })
+}
+
+///|
+/// Walk the .dynamic entries for DT_NEEDED, DT_STRTAB, DT_VERNEED and
+/// DT_VERNEEDNUM, resolving string-table references through PT_LOAD
+/// segments and collecting required GLIBC_* symbol versions.
+fn parse_dynamic_deps(
+  binary : Bytes,
+  dyn_offset : Int,
+  dyn_size : Int64,
+  loads : Array[(Int64, Int64, Int64)],
+  needed : Array[String],
+  glibc_versions : Array[String],
+) -> Unit {
+  let needed_offsets : Array[Int] = []
+  let mut strtab_vaddr = -1L
+  let mut verneed_vaddr = -1L
+  let mut verneed_num = 0L
+  let count = (dyn_size / 16).to_int()
+  for i = 0; i < count; i = i + 1 {
+    let entry = dyn_offset + i * 16
+    if entry + 16 > binary.length() {
+      break
+    }
+    let tag = elf_u64le(binary, entry)
+    let value = elf_u64le(binary, entry + 8)
+    if tag == 0L {
+      break
+    } else if tag == 1L {
+      needed_offsets.push(value.to_int())
+    } else if tag == 5L {
+      strtab_vaddr = value
+    } else if tag == 1879048190L {
+      // DT_VERNEED (0x6ffffffe)
+      verneed_vaddr = value
+    } else if tag == 1879048191L {
+      // DT_VERNEEDNUM (0x6fffffff)
+      verneed_num = value
+    }
+  }
+  guard strtab_vaddr >= 0L else { return }
+  let strtab = match elf_vaddr_offset(loads, strtab_vaddr) {
+    Some(base) => base.to_int()
+    None => return
+  }
+  for offset in needed_offsets {
+    needed.push(elf_cstr(binary, strtab + offset))
+  }
+  guard verneed_vaddr >= 0L else { return }
+  let verneed = match elf_vaddr_offset(loads, verneed_vaddr) {
+    Some(base) => base.to_int()
+    None => return
+  }
+  collect_verneed(binary, verneed, verneed_num.to_int(), strtab, glibc_versions)
+}
+
+///|
+/// Collect the GLIBC_* version strings named by .gnu.version_r entries.
+/// Each Elf64_Verneed is 16 bytes (vn_aux/vn_next are u32) and each
+/// Elf64_Vernaux is 16 bytes (vna_name/vna_next are u32).
+fn collect_verneed(
+  binary : Bytes,
+  offset : Int,
+  count : Int,
+  strtab : Int,
+  out : Array[String],
+) -> Unit {
+  let mut cursor = offset
+  for i = 0; i < count; i = i + 1 {
+    if cursor + 16 > binary.length() {
+      break
+    }
+    let vn_cnt = elf_u16le(binary, cursor + 2)
+    let vn_aux = elf_u32le(binary, cursor + 8)
+    let vn_next = elf_u32le(binary, cursor + 12)
+    let mut aux = cursor + vn_aux
+    for j = 0; j < vn_cnt; j = j + 1 {
+      if aux + 16 > binary.length() {
+        break
+      }
+      let name = elf_cstr(binary, strtab + elf_u32le(binary, aux + 8))
+      if name.has_prefix("GLIBC_") {
+        out.push(name[6:].to_owned())
+      }
+      let vna_next = elf_u32le(binary, aux + 12)
+      if vna_next == 0 {
+        break
+      }
+      aux = aux + vna_next
+    }
+    if vn_next == 0 {
+      break
+    }
+    cursor = cursor + vn_next
+  }
+}
+
+///|
+/// The host Linux kernel identifier (true when `uname -s` reports Linux).
+async fn host_linux() -> Bool {
+  let (status, out) = @process.collect_stdout("uname", ["-s"]) catch {
+    _ => return false
+  }
+  status == 0 && out.text().trim() == "Linux"
+}
+
+///|
+/// The host ELF e_machine value for the architectures moon-binstall ships,
+/// or None on other platforms.
+async fn host_machine() -> Int? {
+  let (status, out) = @process.collect_stdout("uname", ["-m"]) catch {
+    _ => return None
+  }
+  guard status == 0 else { return None }
+  match out.text().trim() {
+    "x86_64" | "amd64" => Some(62)
+    "aarch64" | "arm64" => Some(183)
+    _ => None
+  }
+}
+
+///|
+/// musl loader paths for the architectures moon-binstall ships. Their
+/// presence means the host runs musl even when no `ldd` exists.
+fn musl_loader_paths() -> Array[String] {
+  [
+    "/lib/ld-musl-x86_64.so.1", "/lib/ld-musl-aarch64.so.1", "/lib/libc.musl-x86_64.so.1",
+    "/lib/libc.musl-aarch64.so.1",
+  ]
+}
+
+///|
+async fn musl_by_loader() -> String? {
+  for path in musl_loader_paths() {
+    if @fs.exists(path) {
+      return Some("musl")
+    }
+  }
+  None
+}
+
+///|
+/// Identify the host libc: "musl", or a glibc version like "2.35".
+/// `ldd --version` output is read from both streams because musl's ldd
+/// prints its banner on stderr and exits nonzero. When ldd is absent or
+/// unhelpful, known musl loader paths are probed instead — no executable
+/// under inspection is ever run.
+async fn host_libc() -> String? {
+  let output = @shell.Cmd("ldd", ["--version"]).output(
+    timeout_ms=15000,
+    max_output_bytes=65536,
+  ) catch {
+    _ => return musl_by_loader()
+  }
+  match parse_host_libc(output.stdout() + "\n" + output.stderr()) {
+    Some(value) => Some(value)
+    None => musl_by_loader()
+  }
+}
+
+///|
+/// Sonames known to the host loader cache (`ldconfig -p`, non-executing —
+/// it only reads /etc/ld.so.cache).
+async fn ldconfig_sonames() -> Array[String] {
+  let names : Array[String] = []
+  let output = @shell.Cmd("ldconfig", ["-p"]).output(
+    timeout_ms=15000,
+    max_output_bytes=4194304,
+  ) catch {
+    _ => return names
+  }
+  for line in output.stdout().split("\n") {
+    let text = line.trim().to_owned()
+    if text.contains("=>") {
+      match text.split(" ").iter().next() {
+        Some(soname) => names.push(soname.to_owned())
+        None => ()
+      }
+    }
+  }
+  names
+}
+
+///|
+/// Library directories checked when no ldconfig cache is available.
+async fn library_dirs() -> Array[String] {
+  let dirs = ["/lib", "/usr/lib", "/usr/local/lib", "/lib64", "/usr/lib64"]
+  let (status, out) = @process.collect_stdout("uname", ["-m"]) catch {
+    _ => return dirs
+  }
+  if status == 0 {
+    let triplet = match out.text().trim() {
+      "x86_64" | "amd64" => "x86_64-linux-gnu"
+      "aarch64" | "arm64" => "aarch64-linux-gnu"
+      _ => ""
+    }
+    if triplet != "" {
+      dirs.push("/lib/" + triplet)
+      dirs.push("/usr/lib/" + triplet)
+    }
+  }
+  dirs
+}
+
+///|
+/// DT_NEEDED sonames that resolve nowhere on this host — checked against
+/// the ldconfig cache and the usual library directories without running
+/// anything.
+async fn missing_libraries(needed : Array[String]) -> Array[String] {
   let missing : Array[String] = []
-  for line in ldd_output.split("\n") {
-    if line.contains("not found") {
-      missing.push(line.trim().to_owned())
+  guard !needed.is_empty() else { return missing }
+  let cache = ldconfig_sonames()
+  let dirs = library_dirs()
+  for soname in needed {
+    if soname.contains("/") {
+      if !@fs.exists(soname) {
+        missing.push(soname)
+      }
+      continue
+    }
+    let mut found = cache.contains(soname)
+    if !found {
+      for dir in dirs {
+        if @fs.exists(dir + "/" + soname) {
+          found = true
+          break
+        }
+      }
+    }
+    if !found {
+      missing.push(soname)
     }
   }
   missing
 }
 
 ///|
-/// Reject a staged binary that cannot run on this host: an ELF executable
-/// built for this architecture whose loader reports unresolved libraries
-/// (for example a newer glibc). Other formats and foreign architectures are
-/// skipped — they may be fetched on purpose for a different machine.
+/// Reject a staged binary that cannot run on this host — inspected without
+/// executing the downloaded file or running `ldd` on it, so hostile or
+/// corrupted artifacts stay inert. An ELF built for this architecture is
+/// rejected when its PT_INTERP loader is missing, a DT_NEEDED library is
+/// unresolvable, or it requires a newer glibc than the host provides.
+/// Other formats and foreign architectures are skipped — they may be
+/// fetched on purpose for a different machine.
 async fn verify_binary_compat(
   path : String,
   binary : Bytes,
@@ -1095,28 +1434,55 @@ async fn verify_binary_compat(
     Some(value) => value
     None => return
   }
-  let (uname_status, uname_out) = @process.collect_stdout("uname", ["-m"]) catch {
-    _ => return
+  guard host_linux() else { return }
+  let host = match host_machine() {
+    Some(value) => value
+    None => return
   }
-  guard uname_status == 0 else { return }
-  let host_machine = match uname_out.text().trim() {
-    "x86_64" | "amd64" => 62
-    "aarch64" | "arm64" => 183
-    _ => return
+  guard machine == host else { return }
+  let deps = match parse_elf64_deps(binary) {
+    Some(value) => value
+    None => return
   }
-  guard machine == host_machine else { return }
-  let ldd = @shell.Cmd("ldd", [path]).output(
-    timeout_ms=15000,
-    max_output_bytes=1048576,
-  ) catch {
-    _ => return
-  }
-  let missing = unresolved_libraries(@utf8.decode(ldd.stdout_bytes()))
-  guard !missing.is_empty() else { return }
   let name = path.split("/").last().unwrap_or(path)
-  fail(
-    "installed binary \{name} cannot run on this system: \{missing.join("; ")}. Build it from source instead, or pass --skip-compat-check to install anyway.",
-  )
+  match deps.interp {
+    Some(interp) =>
+      if interp != "" && !@fs.exists(interp) {
+        fail(
+          "installed binary \{name} cannot run on this system: ELF interpreter \{interp} is missing. Build it from source instead, or pass --skip-compat-check to install anyway.",
+        )
+      }
+    None => ()
+  }
+  let missing = missing_libraries(deps.needed)
+  let missing_list = missing.join(", ")
+  guard missing.is_empty() else {
+    fail(
+      "installed binary \{name} cannot run on this system: unresolved libraries \{missing_list}. Build it from source instead, or pass --skip-compat-check to install anyway.",
+    )
+  }
+  if deps.glibc_versions.is_empty() {
+    return
+  }
+  let mut required = deps.glibc_versions[0]
+  for version in deps.glibc_versions {
+    if version_lt(required, version) {
+      required = version
+    }
+  }
+  match host_libc() {
+    Some("musl") =>
+      fail(
+        "installed binary \{name} cannot run on this system: it requires glibc >= \{required} but this system uses musl libc. Build it from source instead, or pass --skip-compat-check to install anyway.",
+      )
+    Some(version) =>
+      if version_lt(version, required) {
+        fail(
+          "installed binary \{name} cannot run on this system: it requires glibc >= \{required} but this system has glibc \{version}. Build it from source instead, or pass --skip-compat-check to install anyway.",
+        )
+      }
+    None => ()
+  }
 }
 
 ///|
@@ -1225,9 +1591,10 @@ fn parse_digits(text : StringView) -> Int {
 
 ///|
 /// Fail before downloading when the publisher declares a glibc minimum that
-/// the host cannot satisfy (musl hosts and older glibc). Only applies to a
-/// Linux target on a Linux host; undetermined libc is left to the
-/// post-download ldd check.
+/// the host cannot satisfy (musl hosts and older glibc). Only applies when
+/// the install targets a Linux binary for this host's own architecture —
+/// a cross-architecture fetch is left to the post-download ELF check,
+/// which inspects the real binary.
 async fn check_declared_glibc(
   glibc_min : String?,
   target : String,
@@ -1241,20 +1608,18 @@ async fn check_declared_glibc(
     Some(value) => value
     None => return
   }
-  guard target.has_prefix("linux") else { return }
-  let (uname_status, uname_out) = @process.collect_stdout("uname", ["-s"]) catch {
+  let target_machine = match target {
+    "linux-x86_64" => 62
+    "linux-aarch64" => 183
     _ => return
   }
-  guard uname_status == 0 && uname_out.text().trim() == "Linux" else {
-    return
+  guard host_linux() else { return }
+  let host = match host_machine() {
+    Some(value) => value
+    None => return
   }
-  let ldd = @shell.Cmd("ldd", ["--version"]).output(
-    timeout_ms=15000,
-    max_output_bytes=65536,
-  ) catch {
-    _ => return
-  }
-  match parse_host_libc(@utf8.decode(ldd.stdout_bytes())) {
+  guard host == target_machine else { return }
+  match host_libc() {
     Some("musl") =>
       fail(
         "installed binary \{binary} requires glibc >= \{min} but this system uses musl libc. Build it from source instead, or pass --skip-compat-check to install anyway.",

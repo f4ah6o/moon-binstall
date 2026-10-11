@@ -49,14 +49,54 @@ jobs:
           set -euo pipefail
           command -v objdump > /dev/null 2>&1 || sudo apt-get install -y binutils
           version="$(sed -n 's/^version *= *"\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' moon.mod)"
-          gh release download "v$version" -p "moon-binstall-linux-x86_64" -O /tmp/moon-binstall --clobber
-          min="$(objdump -T /tmp/moon-binstall | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n1 | sed 's/^GLIBC_//')"
-          if [ -n "$min" ]; then
-            jq --arg min "$min" '.packages |= map(. + {"glibc-min": $min})' moon-binstall.json > moon-binstall.json.tmp
-            mv moon-binstall.json.tmp moon-binstall.json
-            echo "declared glibc-min=$min"
+          assets="$(gh release view "v$version" --json assets --jq '.assets[].name')"
+          measure() {
+            # Print the newest GLIBC_* version the asset requires (empty when
+            # it has none, e.g. a static or musl build).
+            gh release download "v$version" -p "$1" -O "/tmp/$1" --clobber
+            objdump -T "/tmp/$1" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -n1 | sed 's/^GLIBC_//' || true
+          }
+          tmp="$(mktemp)"
+          cp moon-binstall.json "$tmp"
+          # For every package entry, measure each Linux release asset that
+          # exists. Equal results stamp a shared glibc-min; differing results
+          # stamp per-target overrides instead, so an x86_64 measurement is
+          # never stamped onto aarch64. Package entries without measurable
+          # Linux assets are left untouched.
+          count="$(jq '.packages | length' "$tmp")"
+          for i in $(seq 1 "$count"); do
+            i=$((i - 1))
+            binary="$(jq -r ".packages[$i].binary" "$tmp")"
+            targets=()
+            mins=()
+            for target in linux-x86_64 linux-aarch64; do
+              asset="$binary-$target"
+              if grep -qxF "$asset" <<< "$assets"; then
+                targets+=("$target")
+                mins+=("$(measure "$asset")")
+              fi
+            done
+            [ "${#targets[@]}" -gt 0 ] || continue
+            uniq="$(printf '%s\n' "${mins[@]}" | sort -u | wc -l)"
+            if [ "$uniq" -eq 1 ] && [ -n "${mins[0]}" ]; then
+              jq --argjson i "$i" --arg min "${mins[0]}" \
+                '.packages[$i] += {"glibc-min": $min}' \
+                "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
+            else
+              for j in "${!targets[@]}"; do
+                [ -n "${mins[$j]}" ] || continue
+                jq --argjson i "$i" --arg t "${targets[$j]}" --arg min "${mins[$j]}" \
+                  '.packages[$i].overrides[$t] = ((.packages[$i].overrides[$t] // {}) + {"glibc-min": $min})' \
+                  "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
+              done
+            fi
+          done
+          if ! cmp -s moon-binstall.json "$tmp"; then
+            mv "$tmp" moon-binstall.json
+            echo "stamped glibc-min:"
+            jq -c '.packages' moon-binstall.json
           else
-            echo "no GLIBC_* requirements found; manifest left unchanged"
+            echo "no GLIBC_* requirements measured; manifest left unchanged"
           fi
       - name: Publish package to Mooncakes
         if: steps.release.outputs.publish == 'true'

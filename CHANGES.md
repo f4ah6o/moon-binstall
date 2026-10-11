@@ -21,16 +21,21 @@
 ### Added
 
 - A compatibility check runs on each staged binary before it is moved into
-  place: a Linux ELF binary matching the host architecture whose `ldd`
-  reports unresolved libraries (for example a newer glibc than the host
-  provides) aborts the install with a hint to build from source. Other
-  formats and foreign architectures are skipped, and `--skip-compat-check`
-  opts out.
+  place, without executing the binary or running `ldd` on it. For a Linux
+  ELF binary matching the host architecture the installer reads `PT_INTERP`,
+  `DT_NEEDED` and required `GLIBC_*` symbol versions, then aborts with a
+  source-build hint when the interpreter is missing, a library is
+  unresolvable via the host loader cache and library directories, or the
+  host glibc is too old. Other formats and foreign architectures are
+  skipped, and `--skip-compat-check` opts out.
 - Package entries and per-target overrides in `moon-binstall.json` accept an
-  optional `glibc-min` (e.g. `"2.38"`). On a Linux target/host the declared
-  minimum is checked before downloading: a musl host or an older glibc aborts
-  with a source-build hint. The publish workflow stamps the value measured
-  from the built Linux binary into the published manifest.
+  optional `glibc-min` (e.g. `"2.38"`). When an install targets the host's
+  own Linux architecture the declared minimum is checked before
+  downloading: a musl host or an older glibc aborts with a source-build
+  hint; cross-architecture fetches are unaffected. The publish workflow
+  measures each Linux release asset and stamps a shared value, or
+  per-target overrides when the results differ, into the published
+  manifest.
 
 ### Changed
 
