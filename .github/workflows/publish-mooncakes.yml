@@ -40,6 +40,61 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
       - uses: hustcer/setup-moonbit@v1
         if: steps.release.outputs.publish == 'true'
+      - name: Stamp declared glibc-min into moon-binstall.json
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          command -v objdump > /dev/null 2>&1 || sudo apt-get install -y binutils
+          version="$(sed -n 's/^version *= *"\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' moon.mod)"
+          assets="$(gh release view "v$version" --json assets --jq '.assets[].name')"
+          tmp="$(mktemp)"
+          cp moon-binstall.json "$tmp"
+          # For every package entry, measure each Linux release asset that
+          # exists. Equal results stamp a shared glibc-min; differing results
+          # stamp per-target overrides instead, so an x86_64 measurement is
+          # never stamped onto aarch64. Package entries without measurable
+          # Linux assets are left untouched.
+          count="$(jq '.packages | length' "$tmp")"
+          for i in $(seq 1 "$count"); do
+            i=$((i - 1))
+            binary="$(jq -r ".packages[$i].binary" "$tmp")"
+            targets=()
+            mins=()
+            for target in linux-x86_64 linux-aarch64; do
+              asset="$binary-$target"
+              if grep -qxF "$asset" <<< "$assets"; then
+                targets+=("$target")
+                # A failed download or objdump aborts the workflow instead of
+                # stamping nothing — only a real symbol-less binary yields "".
+                min="$(bash scripts/measure_glibc_min.sh "$asset" "v$version" /tmp)"
+                mins+=("$min")
+              fi
+            done
+            [ "${#targets[@]}" -gt 0 ] || continue
+            uniq="$(printf '%s\n' "${mins[@]}" | sort -u | wc -l)"
+            if [ "$uniq" -eq 1 ] && [ -n "${mins[0]}" ]; then
+              jq --argjson i "$i" --arg min "${mins[0]}" \
+                '.packages[$i] += {"glibc-min": $min}' \
+                "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
+            else
+              for j in "${!targets[@]}"; do
+                [ -n "${mins[$j]}" ] || continue
+                jq --argjson i "$i" --arg t "${targets[$j]}" --arg min "${mins[$j]}" \
+                  '.packages[$i].overrides[$t] = ((.packages[$i].overrides[$t] // {}) + {"glibc-min": $min})' \
+                  "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
+              done
+            fi
+          done
+          if ! cmp -s moon-binstall.json "$tmp"; then
+            mv "$tmp" moon-binstall.json
+            echo "stamped glibc-min:"
+            jq -c '.packages' moon-binstall.json
+          else
+            echo "no GLIBC_* requirements measured; manifest left unchanged"
+          fi
       - name: Publish package to Mooncakes
         if: steps.release.outputs.publish == 'true'
         env:

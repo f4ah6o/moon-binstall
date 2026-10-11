@@ -136,6 +136,7 @@ each package's release asset. For example:
       "pkg-url": "{repo}/releases/download/v{version}/{bin}-{target}{archive-suffix}",
       "pkg-fmt": "tgz",
       "bin-path": "{package}/{bin}",
+      "glibc-min": "2.38",
       "overrides": {
         "darwin-aarch64": {
           "pkg-url": "{ repo }/releases/download/v{ version }/{ bin }-{ target }{ archive-suffix }",
@@ -171,6 +172,16 @@ package value. Ordered `--targets` resolution applies each target's own
 settings. CLI options take precedence over both levels. All declared target
 names and metadata are validated, including overrides that are not ultimately
 selected.
+
+Optional `glibc-min` declares the minimum glibc version a Linux binary
+requires (for example `"2.38"` on an asset built on ubuntu-24.04), either at
+the package level or inside a target override. Before downloading, the
+installer compares it with the host libc when the install targets the
+host's own Linux architecture: a musl system or an older glibc aborts the
+install with a hint to build from source. Cross-architecture fetches are
+not rejected on a host constraint. `--skip-compat-check` bypasses the
+declaration, and hosts whose libc cannot be determined fall through to the
+post-download ELF check, which inspects the binary itself.
 
 Templates accept both `{target}` and Cargo-style whitespace such as
 `{ target }`. They support `{repo}` (the module GitHub repository URL),
@@ -241,11 +252,26 @@ By default the latest non-prerelease GitHub Release is used. Specify
 `--force` replaces an existing **regular file** after verification, and
 `--bin-dir` or `MOON_BINSTALL_DIR` overrides `$HOME/.local/bin`. Install batches
 are fully downloaded and verified before the first destination is replaced.
-The destination directory must be added to `PATH`.
+Before a staged binary is moved into place it is checked for runtime
+compatibility — statically, without executing it or running `ldd` on it.
+For a Linux ELF64 binary matching the host architecture, the installer
+rejects anything that is not executable (`e_type` other than `ET_EXEC` or
+`ET_DYN`) or has malformed program headers, then reads its `PT_INTERP`
+loader path, `DT_NEEDED` library list, `DT_RUNPATH`/`DT_RPATH` search
+paths and required symbol versions (`GLIBC_*`, `GLIBCXX_*`, ...), and
+fails the install — with a hint to build from source instead — when the
+interpreter is missing, a library cannot be resolved through the declared
+runpath (`$ORIGIN` expands to the install directory), the host loader
+cache and the usual library directories, or a required version is not
+defined by the resolved provider library's own version definitions.
+Other formats and foreign architectures are skipped. Pass
+`--skip-compat-check` to install anyway. The destination directory must be added to `PATH`.
 
 ## Security
 
-No downloaded asset is executed during installation. Registry, GitHub API and
+No downloaded asset is executed during installation; compatibility is
+judged by parsing ELF metadata and consulting the host loader, never by
+running the artifact or `ldd` on it. Registry, GitHub API and
 asset transfers use HTTPS and redirects must remain HTTPS. The Mooncakes source
 ZIP checksum and selected GitHub release asset digest are checked separately.
 Before extraction, the installer validates every archive entry, including

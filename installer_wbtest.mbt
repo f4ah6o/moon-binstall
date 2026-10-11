@@ -42,9 +42,7 @@ async fn create_fixture_tar_entries(
   @fs.mkdir(source, recursive=true, allow_exist=true)
   for (member_path, content) in entries {
     if member_path.has_suffix("/") {
-      @fs.mkdir(
-        source + "/" + member_path, recursive=true, allow_exist=true,
-      )
+      @fs.mkdir(source + "/" + member_path, recursive=true, allow_exist=true)
     } else {
       let parts = member_path.split("/").collect()
       let mut parent = source
@@ -143,20 +141,12 @@ async fn create_unsafe_fixture_tar(
 /// checksum check, reproducing a compression auto-detection ambiguity.
 async fn create_gzip_with_tar_checksum_fixture(archive : String) -> Unit {
   let script = [
-    "import io, struct, sys, tarfile, zlib",
-    "plain = io.BytesIO()",
-    "with tarfile.open(fileobj=plain, mode='w') as archive:",
-    "    member = tarfile.TarInfo('bin/fixture')",
-    "    data = b'forged gzip fixture' + bytes([10])",
-    "    member.size = len(data)",
-    "    archive.addfile(member, io.BytesIO(data))",
-    "tar_data = plain.getvalue()",
-    "header = bytearray(bytes([31, 139, 8, 4]) + bytes(4) + bytes([0, 255]) + struct.pack('<H', 500) + bytes(500))",
-    "header[148:156] = bytes([32]) * 8",
-    "checksum = sum(header)",
-    "header[148:156] = ('%06o' % checksum).encode() + bytes([0, 32])",
-    "assert int(header[148:154], 8) == checksum",
-    "compressor = zlib.compressobj(wbits=-15)",
+    "import io, struct, sys, tarfile, zlib", "plain = io.BytesIO()", "with tarfile.open(fileobj=plain, mode='w') as archive:",
+    "    member = tarfile.TarInfo('bin/fixture')", "    data = b'forged gzip fixture' + bytes([10])",
+    "    member.size = len(data)", "    archive.addfile(member, io.BytesIO(data))",
+    "tar_data = plain.getvalue()", "header = bytearray(bytes([31, 139, 8, 4]) + bytes(4) + bytes([0, 255]) + struct.pack('<H', 500) + bytes(500))",
+    "header[148:156] = bytes([32]) * 8", "checksum = sum(header)", "header[148:156] = ('%06o' % checksum).encode() + bytes([0, 32])",
+    "assert int(header[148:154], 8) == checksum", "compressor = zlib.compressobj(wbits=-15)",
     "gzip_data = bytes(header) + compressor.compress(tar_data) + compressor.flush() + struct.pack('<II', zlib.crc32(tar_data), len(tar_data))",
     "open(sys.argv[1], 'wb').write(gzip_data)",
   ].join("\n")
@@ -235,7 +225,8 @@ async fn make_target_override_transport(root : String) -> FixtureTransport {
   ])
   let digest = fixture_digest(archive)
   let asset_name = "cli-macos-aarch64.zip"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let metadata_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
   let source_url = "https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip"
   let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
@@ -319,12 +310,14 @@ async fn fixture_install(
     } else {
       Some("bin/{bin}")
     },
+    glibc_min: None,
   }
   let options : BatchOptions = {
     coordinates: [],
     directory: None,
     dry_run: false,
     force: false,
+    skip_compat_check: false,
     target: Some("linux-x86_64"),
     version: None,
     pkg_url: None,
@@ -369,16 +362,18 @@ async test "tar codec formats extract only the selected member and enforce bound
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let content = "codec fixture payload"
   let formats = [
-    "tar", "tgz", "tar.gz", "tbz2", "tar.bz2", "txz", "tar.xz",
-    "tzstd", "tar.zst",
+    "tar", "tgz", "tar.gz", "tbz2", "tar.bz2", "txz", "tar.xz", "tzstd", "tar.zst",
   ]
   for i = 0; i < formats.length(); i = i + 1 {
     let format = formats[i]
     let suffix = archive_suffix(format)
     let archive = root + "/safe-" + i.to_string() + suffix
     create_fixture_tar_format(
-      root + "/safe-src-" + i.to_string(), archive, content,
-      "bin/fixture", format,
+      root + "/safe-src-" + i.to_string(),
+      archive,
+      content,
+      "bin/fixture",
+      format,
     )
     assert_eq(
       @utf8.decode(read_artifact_binary(archive, format, Some("bin/fixture"))),
@@ -398,7 +393,10 @@ async test "tar codec formats extract only the selected member and enforce bound
       try {
         ignore(
           read_artifact_binary_with_limit(
-            archive, format, Some("bin/fixture"), 3,
+            archive,
+            format,
+            Some("bin/fixture"),
+            3,
           ),
         )
         false
@@ -409,14 +407,14 @@ async test "tar codec formats extract only the selected member and enforce bound
 
     let unsafe_archive = root + "/unsafe-" + i.to_string() + suffix
     create_unsafe_fixture_tar(
-      root + "/unsafe-src-" + i.to_string(), unsafe_archive, format,
+      root + "/unsafe-src-" + i.to_string(),
+      unsafe_archive,
+      format,
     )
     assert_true(
       try {
         ignore(
-          read_artifact_binary(
-            unsafe_archive, format, Some("bin/fixture"),
-          ),
+          read_artifact_binary(unsafe_archive, format, Some("bin/fixture")),
         )
         false
       } catch {
@@ -432,7 +430,11 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let gzip_archive = root + "/fixture.tgz"
   create_fixture_tar_format(
-    root + "/gzip-src", gzip_archive, "fixture", "bin/fixture", "tgz",
+    root + "/gzip-src",
+    gzip_archive,
+    "fixture",
+    "bin/fixture",
+    "tgz",
   )
   assert_true(
     try {
@@ -444,7 +446,11 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   )
   let plain_archive = root + "/fixture.tar"
   create_fixture_tar_format(
-    root + "/plain-src", plain_archive, "fixture", "bin/fixture", "tar",
+    root + "/plain-src",
+    plain_archive,
+    "fixture",
+    "bin/fixture",
+    "tar",
   )
   assert_true(
     try {
@@ -470,9 +476,7 @@ async test "tar reader rejects bytes whose compression conflicts with declared f
   assert_true(
     try {
       ignore(
-        read_artifact_binary(
-          forged_gzip_archive, "tar", Some("bin/fixture"),
-        ),
+        read_artifact_binary(forged_gzip_archive, "tar", Some("bin/fixture")),
       )
       false
     } catch {
@@ -486,13 +490,17 @@ async test "plain tar accepts member names that resemble ASCII container magic" 
   let root = @fs.tmpdir(prefix="moon-binstall-tar-ascii-magic-names")
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let content = "valid plain tar member"
-  for name in [
-    "BZh-tool", "LZIP-tool", "070701-tool", "070702-tool", "070707-tool",
-    "MSCF-tool",
-  ] {
+  for
+    name in [
+      "BZh-tool", "LZIP-tool", "070701-tool", "070702-tool", "070707-tool", "MSCF-tool",
+    ] {
     let archive = root + "/" + name + ".tar"
     create_fixture_tar_format(
-      root + "/source-" + name, archive, content, name, "tar",
+      root + "/source-" + name,
+      archive,
+      content,
+      name,
+      "tar",
     )
     assert_eq(
       @utf8.decode(read_artifact_binary(archive, "tar", Some(name))),
@@ -509,32 +517,80 @@ test "ordered targets prefer earlier assets and apply the matched target to temp
     "--pkg-fmt", "tgz", "--bin-path", "bin/{target}/{bin}",
   ])
   let first_name = "tool-linux-x86_64.tgz"
-  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + first_name
+  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    first_name
   let second_name = "tool-darwin-aarch64.tgz"
-  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + second_name
+  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    second_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  let first_asset = "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"}"
-  let second_asset = "{\"name\":\"" + second_name + "\",\"browser_download_url\":\"" + second_url + "\",\"digest\":\"" + digest + "\"}"
-  let only_second = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + second_asset + "]}"
+  let first_asset = "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}"
+  let second_asset = "{\"name\":\"" +
+    second_name +
+    "\",\"browser_download_url\":\"" +
+    second_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}"
+  let only_second = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+    second_asset +
+    "]}"
   let resolved_second = resolve_asset_for_release(
-    only_second, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-    "linux-x86_64", None, options,
+    only_second,
+    "acme",
+    "tool",
+    "tool",
+    "tool",
+    "tool",
+    "1.0.0",
+    "linux-x86_64",
+    None,
+    options,
   )
   assert_eq(resolved_second.asset.name, second_name)
   assert_eq(resolved_second.bin_path, Some("bin/darwin-aarch64/tool"))
 
-  let both = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + first_asset + "," + second_asset + "]}"
+  let both = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+    first_asset +
+    "," +
+    second_asset +
+    "]}"
   let resolved_first = resolve_asset_for_release(
-    both, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-    "linux-x86_64", None, options,
+    both,
+    "acme",
+    "tool",
+    "tool",
+    "tool",
+    "tool",
+    "1.0.0",
+    "linux-x86_64",
+    None,
+    options,
   )
   assert_eq(resolved_first.asset.name, first_name)
 
   let unrelated_unsafe = "{\"name\":\"other-linux-x86_64.tgz\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"sha512:bad\"}"
-  let with_unselected_unsafe = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + unrelated_unsafe + "," + first_asset + "]}"
+  let with_unselected_unsafe = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+    unrelated_unsafe +
+    "," +
+    first_asset +
+    "]}"
   let resolved_with_unselected_unsafe = resolve_asset_for_release(
-    with_unselected_unsafe, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-    "linux-x86_64", None, options,
+    with_unselected_unsafe,
+    "acme",
+    "tool",
+    "tool",
+    "tool",
+    "tool",
+    "1.0.0",
+    "linux-x86_64",
+    None,
+    options,
   )
   assert_eq(resolved_with_unselected_unsafe.asset.name, first_name)
 
@@ -543,8 +599,16 @@ test "ordered targets prefer earlier assets and apply the matched target to temp
     try {
       ignore(
         resolve_asset_for_release(
-          empty, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-          "linux-x86_64", None, options,
+          empty,
+          "acme",
+          "tool",
+          "tool",
+          "tool",
+          "tool",
+          "1.0.0",
+          "linux-x86_64",
+          None,
+          options,
         ),
       )
       false
@@ -562,26 +626,74 @@ test "malformed preferred target assets fail closed instead of falling back" {
     "--pkg-fmt", "tgz",
   ])
   let first_name = "tool-linux-x86_64.tgz"
-  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + first_name
+  let first_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    first_name
   let second_name = "tool-darwin-aarch64.tgz"
-  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" + second_name
+  let second_url = "https://github.com/acme/tool/releases/download/v1.0.0/" +
+    second_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  let valid_second = "{\"name\":\"" + second_name + "\",\"browser_download_url\":\"" + second_url + "\",\"digest\":\"" + digest + "\"}"
+  let valid_second = "{\"name\":\"" +
+    second_name +
+    "\",\"browser_download_url\":\"" +
+    second_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}"
   let invalid_preferred = [
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":null,\"digest\":\"" + digest + "\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"" + digest + "\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"sha512:bad\"}",
-    "{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"},{\"name\":\"" + first_name + "\",\"browser_download_url\":\"" + first_url + "\",\"digest\":\"" + digest + "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":null,\"digest\":\"" +
+    digest +
+    "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"https://evil.example/asset\",\"digest\":\"" +
+    digest +
+    "\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"sha512:bad\"}",
+    "{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"},{\"name\":\"" +
+    first_name +
+    "\",\"browser_download_url\":\"" +
+    first_url +
+    "\",\"digest\":\"" +
+    digest +
+    "\"}",
   ]
   for bad_entries in invalid_preferred {
-    let payload = "{\"tag_name\":\"v1.0.0\",\"assets\":[" + bad_entries + "," + valid_second + "]}"
+    let payload = "{\"tag_name\":\"v1.0.0\",\"assets\":[" +
+      bad_entries +
+      "," +
+      valid_second +
+      "]}"
     assert_true(
       try {
         ignore(
           resolve_asset_for_release(
-            payload, "acme", "tool", "tool", "tool", "tool", "1.0.0",
-            "linux-x86_64", None, options,
+            payload,
+            "acme",
+            "tool",
+            "tool",
+            "tool",
+            "tool",
+            "1.0.0",
+            "linux-x86_64",
+            None,
+            options,
           ),
         )
         false
@@ -647,9 +759,7 @@ async test "archive member discovery prefers root then finds standard release di
   ])
   assert_eq(
     @utf8.decode(
-      read_artifact_binary_from_candidates(
-        root_and_nested, "zip", candidates,
-      ),
+      read_artifact_binary_from_candidates(root_and_nested, "zip", candidates),
     ),
     "root binary",
   )
@@ -682,7 +792,9 @@ async test "archive member discovery prefers root then finds standard release di
   create_fixture_zip(empty_member, "cli", "")
   assert_true(
     try {
-      ignore(read_artifact_binary_from_candidates(empty_member, "zip", candidates))
+      ignore(
+        read_artifact_binary_from_candidates(empty_member, "zip", candidates),
+      )
       false
     } catch {
       _ => true
@@ -752,9 +864,7 @@ async test "archive discovery skips exact matching directories but explicit path
     }
     assert_eq(
       @utf8.decode(
-        read_artifact_binary_from_candidates(
-          root_priority, format, candidates,
-        ),
+        read_artifact_binary_from_candidates(root_priority, format, candidates),
       ),
       "root binary",
     )
@@ -785,7 +895,9 @@ async test "archive discovery skips exact matching directories but explicit path
     } catch {
       error => error.to_string()
     }
-    assert_true(explicit_error.contains("requested archive member is a directory"))
+    assert_true(
+      explicit_error.contains("requested archive member is a directory"),
+    )
   }
 }
 
@@ -1194,7 +1306,8 @@ async test "ordered target overrides select matching URL format and member path"
     "acme/toolkit/cmd/cli@1.2.3", "--targets", "linux-x86_64,darwin-aarch64",
   ])
   let asset_name = "darwin-darwin-aarch64.zip"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
   let plan = resolve_asset_plan_for_release(
@@ -1225,21 +1338,15 @@ async test "CLI artifact options override target metadata and explicit path neve
     None => fail("expected package config")
   }
   let options = parse_batch_options([
-    "acme/toolkit/cmd/cli@1.2.3",
-    "--target",
-    "linux-x86_64",
-    "--pkg-url",
-    "{ repo }/releases/download/v{ version }/cli-{ target }-{ archive-format }.zip",
-    "--pkg-fmt",
-    "zip",
-    "--bin-path",
-    "exact/{ target }/{ bin }",
+    "acme/toolkit/cmd/cli@1.2.3", "--target", "linux-x86_64", "--pkg-url", "{ repo }/releases/download/v{ version }/cli-{ target }-{ archive-format }.zip",
+    "--pkg-fmt", "zip", "--bin-path", "exact/{ target }/{ bin }",
   ])
   let archive = root + "/cli.zip"
   create_fixture_zip(archive, "cli", "root fallback must not be used")
   let digest = fixture_digest(archive)
   let asset_name = "cli-linux-x86_64-zip.zip"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
   let plan = resolve_asset_plan_for_release(
     payload,
@@ -1269,6 +1376,7 @@ async test "CLI artifact options override target metadata and explicit path neve
         workspace,
         0,
         true,
+        false,
         Fixture({ responses: [], files: [(asset_url, archive)], }),
       ),
     )
@@ -1296,16 +1404,12 @@ test "CLI URL override does not mask an invalid declared target URL" {
     None => fail("expected package config")
   }
   let options = parse_batch_options([
-    "acme/toolkit/cmd/cli@1.2.3",
-    "--target",
-    "linux-x86_64",
-    "--pkg-url",
-    "{repo}/releases/download/v{version}/{bin}-{target}",
-    "--pkg-fmt",
-    "bin",
+    "acme/toolkit/cmd/cli@1.2.3", "--target", "linux-x86_64", "--pkg-url", "{repo}/releases/download/v{version}/{bin}-{target}",
+    "--pkg-fmt", "bin",
   ])
   let asset_name = "cli-linux-x86_64"
-  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + asset_name
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    asset_name
   let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let payload = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
   let error = try {
@@ -1336,10 +1440,7 @@ async test "Mooncakes target fallback uses whitespace metadata and discovers nes
   defer (@fs.rmdir(root, recursive=true) catch { _ => () })
   let output = root + "/installed"
   let options = parse_batch_options([
-    "acme/toolkit/cmd/cli@1.2.3",
-    "--targets",
-    "linux-x86_64,darwin-aarch64",
-    "--bin-dir",
+    "acme/toolkit/cmd/cli@1.2.3", "--targets", "linux-x86_64,darwin-aarch64", "--bin-dir",
     output,
   ])
   let transport = make_target_override_transport(root)
@@ -1367,8 +1468,10 @@ async test "second archive discovery failure preserves both forced destinations"
   let second_digest = fixture_digest(second_archive)
   let first_name = "first-linux-x86_64.zip"
   let second_name = "second-linux-x86_64.zip"
-  let first_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + first_name
-  let second_url = "https://github.com/acme/tools/releases/download/v1.2.3/" + second_name
+  let first_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    first_name
+  let second_url = "https://github.com/acme/tools/releases/download/v1.2.3/" +
+    second_name
   let source_url = "https://download.mooncakes.io/user/acme/toolkit/1.2.3.zip"
   let metadata_url = "https://mooncakes.io/api/v0/manifest/acme/toolkit@1.2.3"
   let metadata = "{\"module\":\"acme/toolkit\",\"version\":\"1.2.3\",\"yanked\":false,\"metadata\":{\"repository\":\"https://github.com/acme/tools\",\"checksum\":\"\{source_digest[7:].to_owned()}\"}}"
@@ -1387,13 +1490,8 @@ async test "second archive discovery failure preserves both forced destinations"
   @fs.write_file(output + "/first", "old first\n")
   @fs.write_file(output + "/second", "old second\n")
   let options = parse_batch_options([
-    "acme/toolkit/cmd/first@1.2.3",
-    "acme/toolkit/cmd/second@1.2.3",
-    "--bin-dir",
-    output,
-    "--target",
-    "linux-x86_64",
-    "--force",
+    "acme/toolkit/cmd/first@1.2.3", "acme/toolkit/cmd/second@1.2.3", "--bin-dir",
+    output, "--target", "linux-x86_64", "--force",
   ])
   assert_true(
     try {
@@ -1406,4 +1504,1280 @@ async test "second archive discovery failure preserves both forced destinations"
   assert_eq(@fs.read_file(output + "/first").text(), "old first\n")
   assert_eq(@fs.read_file(output + "/second").text(), "old second\n")
   assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
+}
+
+///|
+test "elf_machine detects little-endian ELF binaries" {
+  let elf_x86_64 : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0,
+  ]
+  assert_eq(elf_machine(Bytes::from_array(elf_x86_64)), Some(62))
+  let elf_aarch64 : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 183, 0,
+  ]
+  assert_eq(elf_machine(Bytes::from_array(elf_aarch64)), Some(183))
+  assert_eq(elf_machine(Bytes::from_array([b'n', b'o', b't', b'E'])), None)
+  assert_eq(elf_machine(Bytes::from_array([])), None)
+  let elf_be : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0,
+  ]
+  assert_eq(elf_machine(Bytes::from_array(elf_be)), None)
+}
+
+///|
+/// Build a minimal little-endian ELF64 executable in memory: an ELF header,
+/// PT_LOAD covering the whole file as an identity vaddr→offset mapping,
+/// an optional PT_INTERP, and a PT_DYNAMIC section with DT_NEEDED /
+/// DT_STRTAB / DT_VERNEED entries. Used to exercise parse_elf64_deps and
+/// verify_binary_compat without executing anything.
+fn make_test_elf64(
+  machine : Int,
+  etype : Int,
+  interp : String?,
+  needed : Array[String],
+  runpath : String?,
+  verneed : Array[(String, Array[String])],
+  verdef : Array[String],
+  rpath_tag? : Int64 = 29L,
+  soname? : String? = None,
+) -> Bytes raise {
+  let out : Array[Byte] = []
+  fn put8(value : Int) -> Unit {
+    out.push(value.to_byte())
+  }
+  fn put16(value : Int) -> Unit {
+    put8(value & 0xff)
+    put8((value >> 8) & 0xff)
+  }
+  fn put32(value : Int) -> Unit {
+    put16(value & 0xffff)
+    put16((value >> 16) & 0xffff)
+  }
+  fn put64(value : Int64) -> Unit {
+    for i = 0; i < 8; i = i + 1 {
+      put8((value >> (i * 8)).to_int() & 0xff)
+    }
+  }
+  fn put_bytes(bytes : Array[Byte]) -> Unit {
+    for b in bytes {
+      out.push(b)
+    }
+  }
+  fn put_str(text : String) -> Unit {
+    for c in text {
+      out.push(c.to_int().to_byte())
+    }
+  }
+
+  // String table: "\0" plus every referenced name, recording offsets.
+  let strtab : Array[Byte] = [0]
+  let strtab_offsets : Map[String, Int] = Map([])
+  fn strtab_add(name : String) -> Unit {
+    if strtab_offsets.get(name) is None {
+      strtab_offsets[name] = strtab.length()
+      for c in name {
+        strtab.push(c.to_int().to_byte())
+      }
+      strtab.push(0)
+    }
+  }
+  for name in needed {
+    strtab_add(name)
+  }
+  match runpath {
+    Some(text) => strtab_add(text)
+    None => ()
+  }
+  for entry in verneed {
+    let (provider, versions) = entry
+    strtab_add(provider)
+    for version in versions {
+      strtab_add(version)
+    }
+  }
+  for name in verdef {
+    strtab_add(name)
+  }
+  match soname {
+    Some(text) => strtab_add(text)
+    None => ()
+  }
+
+  let verneed_len = {
+    let mut len = 0
+    for entry in verneed {
+      let (_, versions) = entry
+      len = len + 16 + 16 * versions.length()
+    }
+    len
+  }
+  let verdef_len = if verdef.is_empty() { 0 } else { 20 + 8 * verdef.length() }
+  let has_dyn = needed.length() +
+    verneed_len +
+    verdef_len +
+    (if runpath is Some(_) { 1 } else { 0 }) +
+    (if soname is Some(_) { 1 } else { 0 }) >
+    0
+  let phnum = 1 +
+    (if interp is Some(_) { 1 } else { 0 }) +
+    (if has_dyn { 1 } else { 0 })
+  let interp_off = 64 + 56 * phnum
+  let interp_len = match interp {
+    Some(text) => text.length() + 1
+    None => 0
+  }
+  let dyn_entry_count = needed.length() +
+    3 +
+    (if runpath is Some(_) { 1 } else { 0 }) +
+    (if soname is Some(_) { 1 } else { 0 }) +
+    (if verneed.is_empty() { 0 } else { 2 }) +
+    (if verdef.is_empty() { 0 } else { 2 })
+  let dyn_off = interp_off + interp_len
+  let dyn_len = 16 * dyn_entry_count
+  let strtab_off = dyn_off + dyn_len
+  let verneed_off = strtab_off + strtab.length()
+  let verdef_off = verneed_off + verneed_len
+  let total = if !has_dyn {
+    interp_off + interp_len
+  } else if verneed.is_empty() && verdef.is_empty() {
+    verneed_off
+  } else {
+    verdef_off + verdef_len
+  }
+
+  // ELF header (64 bytes).
+  put8(0x7f)
+  put_bytes([b'E', b'L', b'F'])
+  put8(2)
+  put8(1)
+  put8(1)
+  put8(0)
+  put64(0L)
+  put16(etype)
+  put16(machine)
+  put32(1)
+  put64(0L)
+  put64(64L)
+  put64(0L)
+  put32(0)
+  put16(64)
+  put16(56)
+  put16(phnum)
+  put16(0)
+  put16(0)
+  put16(0)
+
+  fn put_phdr(ptype : Int, offset : Int64, filesz : Int64) -> Unit {
+    put32(ptype)
+    put32(0)
+    put64(offset)
+    put64(offset)
+    put64(0L)
+    put64(filesz)
+    put64(filesz)
+    put64(0x1000L)
+  }
+
+  match interp {
+    Some(_) => put_phdr(3, interp_off.to_int64(), interp_len.to_int64())
+    None => ()
+  }
+  // PT_LOAD: identity vaddr == file offset over the whole file.
+  put_phdr(1, 0L, total.to_int64())
+  if has_dyn {
+    put_phdr(2, dyn_off.to_int64(), dyn_len.to_int64())
+  }
+
+  match interp {
+    Some(text) => {
+      put_str(text)
+      put8(0)
+    }
+    None => ()
+  }
+
+  if has_dyn {
+    fn put_dyn(tag : Int64, value : Int64) -> Unit {
+      put64(tag)
+      put64(value)
+    }
+    for name in needed {
+      put_dyn(1L, strtab_offsets[name].to_int64())
+    }
+    put_dyn(5L, strtab_off.to_int64())
+    put_dyn(10L, strtab.length().to_int64())
+    match runpath {
+      Some(_) => put_dyn(rpath_tag, strtab_offsets[runpath.unwrap()].to_int64())
+      None => ()
+    }
+    match soname {
+      Some(_) => put_dyn(14L, strtab_offsets[soname.unwrap()].to_int64())
+      None => ()
+    }
+    if !verneed.is_empty() {
+      put_dyn(1879048190L, verneed_off.to_int64())
+      put_dyn(1879048191L, verneed.length().to_int64())
+    }
+    if !verdef.is_empty() {
+      put_dyn(1879048188L, verdef_off.to_int64())
+      put_dyn(1879048189L, 1L)
+    }
+    put_dyn(0L, 0L)
+    put_bytes(strtab)
+    for pi, entry in verneed {
+      let (provider, versions) = entry
+      put16(1)
+      put16(versions.length())
+      put32(strtab_offsets[provider])
+      put32(16)
+      put32(
+        if pi + 1 < verneed.length() {
+          16 + 16 * versions.length()
+        } else {
+          0
+        },
+      )
+      for j, version in versions {
+        put32(0)
+        put16(0)
+        put16(j + 2)
+        put32(strtab_offsets[version])
+        put32(if j + 1 < versions.length() { 16 } else { 0 })
+      }
+    }
+    if !verdef.is_empty() {
+      put16(1)
+      put16(0)
+      put16(1)
+      put16(verdef.length())
+      put32(0)
+      put32(20)
+      put32(0)
+      for j, name in verdef {
+        put32(strtab_offsets[name])
+        put32(if j + 1 < verdef.length() { 8 } else { 0 })
+      }
+    }
+  }
+  if out.length() != total {
+    fail("test ELF size mismatch")
+  }
+  Bytes::from_array(out)
+}
+
+///|
+test "parse_elf64_deps extracts interp, needed, runpath and versions" {
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some("/lib64/ld-linux-x86-64.so.2"),
+    ["libc.so.6", "libm.so.6"],
+    Some("$ORIGIN/lib"),
+    [("libc.so.6", ["GLIBC_2.34", "GLIBC_2.38"])],
+    [],
+  )
+  let deps = parse_elf64_deps(elf).unwrap()
+  assert_eq(deps.interp, Some("/lib64/ld-linux-x86-64.so.2"))
+  assert_eq(deps.needed, ["libc.so.6", "libm.so.6"])
+  assert_eq(deps.runpath, Some("$ORIGIN/lib"))
+  assert_eq(deps.verneed, [
+    ("libc.so.6", "GLIBC_2.34"),
+    ("libc.so.6", "GLIBC_2.38"),
+  ])
+  let libelf = make_test_elf64(62, 3, None, [], None, [], ["GLIBCXX_3.4.21"])
+  let libdeps = parse_elf64_deps(libelf).unwrap()
+  assert_eq(libdeps.verdef, ["GLIBCXX_3.4.21"])
+  let static_elf = make_test_elf64(62, 2, None, [], None, [], [])
+  let static_deps = parse_elf64_deps(static_elf).unwrap()
+  assert_eq(static_deps.interp, None)
+  assert_eq(static_deps.needed, [])
+  assert_eq(static_deps.verneed, [])
+  assert_true(parse_elf64_deps(Bytes::from_array([b'n', b'o'])) is None)
+  // A 32-bit ELF is not parsed for dependencies.
+  let elf32 : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  ]
+  assert_true(parse_elf64_deps(Bytes::from_array(elf32)) is None)
+}
+
+///|
+test "expand_runpath expands $ORIGIN and drops unexpandable entries" {
+  let tokens = ["lib/x86_64-linux-gnu"]
+  assert_eq(expand_runpath(None, "/opt/bin", tokens), [])
+  assert_eq(
+    expand_runpath(
+      Some("$ORIGIN:$ORIGIN/lib:/abs/lib:$LIB:rel/lib"),
+      "/opt/bin",
+      tokens,
+    ),
+    ["/opt/bin", "/opt/bin/lib", "/abs/lib"],
+  )
+  // The braced ${ORIGIN} form is equivalent for the glibc loader.
+  assert_eq(
+    expand_runpath(Some("${ORIGIN}:${ORIGIN}/lib"), "/opt/bin", tokens),
+    ["/opt/bin", "/opt/bin/lib"],
+  )
+}
+
+///|
+async test "expand_runpath expands $LIB to the host's single value" {
+  guard require_platform() == "linux-x86_64" else { return }
+  // glibc substitutes exactly one distro-specific value for $LIB:
+  // lib/<triplet> on Debian multiarch, lib64 on Fedora-style layouts.
+  let tokens = lib_token_names(62)
+  assert_eq(tokens.length(), 1)
+  let token = tokens[0]
+  assert_true(
+    token == "lib/x86_64-linux-gnu" || token == "lib64" || token == "lib",
+  )
+  // Under an absolute anchor the single expansion produces exactly one
+  // candidate directory — other plausible-but-wrong dirs must not be
+  // searched (a library only under lib64 fails on Debian).
+  assert_eq(expand_runpath(Some("$ORIGIN/$LIB"), "/opt/bin", tokens), [
+    "/opt/bin/" + token,
+  ])
+  // The braced ${LIB} form expands the same way.
+  assert_eq(expand_runpath(Some("${ORIGIN}/${LIB}"), "/opt/bin", tokens), [
+    "/opt/bin/" + token,
+  ])
+  // A bare $LIB entry is relative and stays unusable; $PLATFORM is not
+  // emulated and is dropped.
+  assert_eq(
+    expand_runpath(Some("$LIB:$ORIGIN/$PLATFORM"), "/opt/bin", tokens),
+    [],
+  )
+}
+
+///|
+async test "verify_binary_compat rejects a missing ELF interpreter on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some("/nonexistent/ld-binstall-missing.so"),
+    [],
+    None,
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-dsh", elf, false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("ELF interpreter"))
+  assert_true(error.contains("/nonexistent/ld-binstall-missing.so"))
+  // A foreign-architecture ELF with the same bogus interpreter is skipped.
+  let foreign = make_test_elf64(
+    183,
+    2,
+    Some("/nonexistent/ld-binstall-missing.so"),
+    [],
+    None,
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-dsh-arm", foreign, false, "/tmp")
+}
+
+///|
+async test "verify_binary_compat rejects non-executable and malformed ELF" {
+  guard require_platform() == "linux-x86_64" else { return }
+  // A relocatable object (ET_REL) like `gcc -c` output is not executable.
+  let object = make_test_elf64(62, 1, None, [], None, [], [])
+  let error = try {
+    verify_binary_compat("/tmp/object.o", object, false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("not executable"))
+  // An ET_EXEC with zero program headers is malformed and must fail closed.
+  let header : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0,
+  ]
+  let bytes = header
+  for i = 0; i < 44; i = i + 1 {
+    bytes.push(0)
+  }
+  let malformed = try {
+    verify_binary_compat("/tmp/stub", Bytes::from_array(bytes), false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(malformed.contains("malformed"))
+  // A dynamic binary without PT_INTERP cannot load its libraries.
+  let no_interp = make_test_elf64(62, 2, None, ["libc.so.6"], None, [], [])
+  let error2 = try {
+    verify_binary_compat("/tmp/staged", no_interp, false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error2.contains("no ELF interpreter"))
+}
+
+///|
+/// Stage a usable PT_INTERP stand-in: an executable host-architecture
+/// ET_DYN ELF, matching what the kernel accepts as a loader.
+async fn staged_loader(dir : String) -> String {
+  let path = dir + "/ld-binstall-test.so.2"
+  @fs.write_file(path, make_test_elf64(62, 3, None, [], None, [], []))
+  @fs.chmod(path, 0o755)
+  path
+}
+
+///|
+async test "verify_binary_compat rejects unresolved libraries on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-missing")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libdefinitelymissing99.so.1"],
+    None,
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-dsh", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("unresolved libraries"))
+  assert_true(error.contains("libdefinitelymissing99.so.1"))
+}
+
+///|
+async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-rpath")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  // A private library beside the installed binary must itself be a usable
+  // host-architecture shared object.
+  let lib = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(install_dir + "/libfake99.so", lib)
+  let loader = staged_loader(install_dir)
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // Without the rpath hit the same soname is missing.
+  let no_rpath = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfake99.so"],
+    None,
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", no_rpath, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libfake99.so"))
+  // The braced ${ORIGIN} form resolves the same way.
+  let braced = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfake99.so"],
+    Some("${ORIGIN}"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", braced, false, install_dir)
+}
+
+///|
+async test "verify_binary_compat rejects an unusable ELF interpreter" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-interp")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let lib = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(install_dir + "/libfake99.so", lib)
+  // Case 1: an existing non-ELF, non-executable text file.
+  let text_loader = install_dir + "/fake-loader"
+  @fs.write_file(text_loader, "just text\n")
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(text_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("ELF interpreter"))
+  // Case 2: a proper ELF loader without the executable bit.
+  let noexec_loader = install_dir + "/ld-noexec.so.2"
+  @fs.write_file(noexec_loader, make_test_elf64(62, 3, None, [], None, [], []))
+  @fs.chmod(noexec_loader, 0o644)
+  let elf2 = make_test_elf64(
+    62,
+    2,
+    Some(noexec_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error2 = try {
+    verify_binary_compat("/tmp/staged-app", elf2, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error2.contains("ELF interpreter"))
+  // Case 3: a foreign-architecture loader is not usable either.
+  let arm_loader = install_dir + "/ld-arm.so.2"
+  @fs.write_file(arm_loader, make_test_elf64(183, 3, None, [], None, [], []))
+  @fs.chmod(arm_loader, 0o755)
+  let elf3 = make_test_elf64(
+    62,
+    2,
+    Some(arm_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error3 = try {
+    verify_binary_compat("/tmp/staged-app", elf3, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error3.contains("ELF interpreter"))
+  // Case 4: a truncated ELF — only the first bytes of a real-looking
+  // loader — is not loadable even with the executable bit set.
+  let short_loader = install_dir + "/ld-short.so.2"
+  let whole = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(short_loader, whole[:20].to_owned())
+  @fs.chmod(short_loader, 0o755)
+  let elf4 = make_test_elf64(
+    62,
+    2,
+    Some(short_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error4 = try {
+    verify_binary_compat("/tmp/staged-app", elf4, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error4.contains("ELF interpreter"))
+}
+
+///|
+async test "verify_binary_compat rejects a wrong-architecture provider" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-wrongarch")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // The provider resolves via $ORIGIN but is built for AArch64.
+  let arm_lib = make_test_elf64(183, 3, None, [], None, [], [])
+  @fs.write_file(install_dir + "/libfake99.so", arm_lib)
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("unusable libraries"))
+  assert_true(error.contains("libfake99.so"))
+  // A non-ELF file at the resolved path is equally unusable.
+  @fs.write_file(install_dir + "/libfake99.so", "not an elf\n")
+  let error2 = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error2.contains("unusable libraries"))
+}
+
+///|
+async test "resolve_soname prefers a usable ldconfig candidate" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let dir = @fs.tmpdir(prefix="moon-binstall-cache")
+  defer (@fs.rmdir(dir, recursive=true) catch { _ => () })
+  // The cache lists both an i386 and an x86_64 provider for one soname —
+  // the loader picks the ABI-compatible entry regardless of order.
+  let i386 = dir + "/libc32.so"
+  let x64 = dir + "/libc64.so"
+  @fs.write_file(i386, make_test_elf64(3, 3, None, [], None, [], []))
+  @fs.write_file(x64, make_test_elf64(62, 3, None, [], None, [], []))
+  let cache : Map[String, Array[String]] = Map([])
+  cache["libdup.so.1"] = [i386, x64]
+  let found = resolve_soname("libdup.so.1", [], cache, [], 62)
+  assert_eq(found, Some(x64))
+  cache["libdup.so.1"] = [x64, i386]
+  let found2 = resolve_soname("libdup.so.1", [], cache, [], 62)
+  assert_eq(found2, Some(x64))
+  // With only a wrong-architecture candidate the resolution still reports
+  // a path so the caller can reject it as unusable.
+  cache["libdup.so.1"] = [i386]
+  let found3 = resolve_soname("libdup.so.1", [], cache, [], 62)
+  assert_eq(found3, Some(i386))
+}
+
+///|
+async test "resolve_soname refuses a non-regular DT_NEEDED path" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let dir = @fs.tmpdir(prefix="moon-binstall-fifo")
+  defer (@fs.rmdir(dir, recursive=true) catch { _ => () })
+  let fifo = dir + "/libfifo.so"
+  let status = @process.run("mkfifo", [fifo])
+  guard status == 0 else { return }
+  // An absolute-path DT_NEEDED naming a FIFO must not be opened.
+  let found = resolve_soname(fifo, [], Map([]), [], 62)
+  assert_true(found is None)
+  // ...nor picked up from a search directory.
+  let found2 = resolve_soname("libfifo.so", [dir], Map([]), [], 62)
+  assert_true(found2 is None)
+}
+
+///|
+async test "verify_binary_compat honors LD_LIBRARY_PATH on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-ldlib")
+  let lib_dir = @fs.tmpdir(prefix="moon-binstall-ldlibdep")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  defer (@fs.rmdir(lib_dir, recursive=true) catch { _ => () })
+  defer @env.unset_env_var("LD_LIBRARY_PATH")
+  let loader = staged_loader(install_dir)
+  let lib = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(lib_dir + "/libenvdep.so", lib)
+  // No RUNPATH: only the inherited LD_LIBRARY_PATH makes this runnable.
+  @env.set_env_var("LD_LIBRARY_PATH", lib_dir)
+  let elf = make_test_elf64(62, 2, Some(loader), ["libenvdep.so"], None, [], [])
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // The dependency is genuinely missing once LD_LIBRARY_PATH is empty.
+  @env.unset_env_var("LD_LIBRARY_PATH")
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libenvdep.so"))
+}
+
+///|
+async test "resolve_soname skips an incompatible search-dir candidate" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let wrong_dir = @fs.tmpdir(prefix="moon-binstall-abi-wrong")
+  let good_dir = @fs.tmpdir(prefix="moon-binstall-abi-good")
+  defer (@fs.rmdir(wrong_dir, recursive=true) catch { _ => () })
+  defer (@fs.rmdir(good_dir, recursive=true) catch { _ => () })
+  // The same soname exists in two search directories; glibc skips the
+  // AArch64 file and loads the x86_64 one regardless of directory order.
+  let wrong = wrong_dir + "/libdup.so.1"
+  let good = good_dir + "/libdup.so.1"
+  @fs.write_file(wrong, make_test_elf64(183, 3, None, [], None, [], []))
+  @fs.write_file(good, make_test_elf64(62, 3, None, [], None, [], []))
+  let found = resolve_soname(
+    "libdup.so.1",
+    [wrong_dir, good_dir],
+    Map([]),
+    [],
+    62,
+  )
+  assert_eq(found, Some(good))
+  let found2 = resolve_soname(
+    "libdup.so.1",
+    [good_dir, wrong_dir],
+    Map([]),
+    [],
+    62,
+  )
+  assert_eq(found2, Some(good))
+  // When every candidate is unusable the first is still reported so the
+  // caller can reject it as an unusable library.
+  let found3 = resolve_soname("libdup.so.1", [wrong_dir], Map([]), [], 62)
+  assert_eq(found3, Some(wrong))
+}
+
+///|
+async test "verify_binary_compat honors a $LIB RUNPATH on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-libtoken")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // A private library under the host's single $LIB expansion satisfies
+  // RUNPATH="$ORIGIN/$LIB".
+  let token = lib_token_names(62)[0]
+  let lib_dir = install_dir + "/" + token
+  @fs.mkdir(lib_dir, recursive=true)
+  @fs.write_file(
+    lib_dir + "/libtokdep.so",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libtokdep.so"],
+    Some("$ORIGIN/$LIB"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // Negative: the same library placed in a directory the real loader's
+  // $LIB expansion does NOT name must not satisfy the RUNPATH — other
+  // plausible-but-wrong dirs are not searched (Debian repro).
+  let wrong_dir = install_dir + "/libnotoken"
+  @fs.mkdir(wrong_dir, recursive=true)
+  @fs.write_file(
+    wrong_dir + "/libonlywrong.so",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let wrong = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libonlywrong.so"],
+    Some("$ORIGIN/$LIB"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", wrong, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libonlywrong.so"))
+}
+
+///|
+async test "resolve_soname keeps searching later tiers after an unusable hit" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let wrong_dir = @fs.tmpdir(prefix="moon-binstall-tier-wrong")
+  let good_dir = @fs.tmpdir(prefix="moon-binstall-tier-good")
+  defer (@fs.rmdir(wrong_dir, recursive=true) catch { _ => () })
+  defer (@fs.rmdir(good_dir, recursive=true) catch { _ => () })
+  // LD_LIBRARY_PATH names only an AArch64 file; the ldconfig cache holds
+  // the compatible x86_64 one. glibc skips the foreign object and uses
+  // the system library — the unusable hit must not shadow the next tier.
+  let wrong = wrong_dir + "/libdup.so.1"
+  let good = good_dir + "/libdup.so.1"
+  @fs.write_file(wrong, make_test_elf64(183, 3, None, [], None, [], []))
+  @fs.write_file(good, make_test_elf64(62, 3, None, [], None, [], []))
+  let cache : Map[String, Array[String]] = Map([])
+  cache["libdup.so.1"] = [good]
+  let found = resolve_soname("libdup.so.1", [wrong_dir], cache, [], 62)
+  assert_eq(found, Some(good))
+  // Cross-tier all-unusable still falls back to the first regular file
+  // so the caller can reject it as unusable.
+  cache["libdup.so.1"] = [wrong]
+  let found2 = resolve_soname(
+    "libdup.so.1",
+    [good_dir, wrong_dir],
+    cache,
+    [],
+    62,
+  )
+  assert_eq(found2, Some(good))
+  let found3 = resolve_soname("libdup.so.1", [wrong_dir], Map([]), [], 62)
+  assert_eq(found3, Some(wrong))
+}
+
+///|
+async test "verify_binary_compat inherits DT_RPATH transitively on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-rpath-inherit")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // main -> libfoo -> libbar, all colocated: only main carries a legacy
+  // DT_RPATH ($ORIGIN), and glibc propagates it to libfoo's lookups.
+  @fs.write_file(
+    install_dir + "/libfoo.so.1",
+    make_test_elf64(62, 3, None, ["libbar.so.1"], None, [], []),
+  )
+  @fs.write_file(
+    install_dir + "/libbar.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfoo.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+    rpath_tag=15L,
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // DT_RUNPATH does NOT propagate: with tag 29 instead the same chain
+  // leaves libbar unresolvable.
+  let no_inherit = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfoo.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", no_inherit, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libbar.so.1"))
+}
+
+///|
+async test "verify_binary_compat reuses an already-loaded library on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-reuse")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // main directly needs BOTH libfoo and libbar via DT_RUNPATH=$ORIGIN;
+  // libfoo itself needs libbar but carries no RUNPATH. ld.so loads libbar
+  // while handling the executable, so libfoo's lookup reuses the mapped
+  // object without searching — libfoo's narrower context is irrelevant.
+  @fs.write_file(
+    install_dir + "/libfooreuse.so.1",
+    make_test_elf64(62, 3, None, ["libbarreuse.so.1"], None, [], []),
+  )
+  @fs.write_file(
+    install_dir + "/libbarreuse.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfooreuse.so.1", "libbarreuse.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // Genuinely missing: without libbar anywhere the chain must still fail.
+  @fs.remove(install_dir + "/libbarreuse.so.1")
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libbarreuse.so.1"))
+}
+
+///|
+async test "verify_binary_compat reuses a loaded object by its DT_SONAME on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-soname-alias")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // The file is named libxyz.so.1 but carries DT_SONAME libbar.so.1:
+  // once the loader maps it, a later DT_NEEDED for libbar.so.1 reuses
+  // the object even though libbar.so.1 does not exist on disk.
+  @fs.write_file(
+    install_dir + "/libxyz.so.1",
+    make_test_elf64(
+      62,
+      3,
+      None,
+      [],
+      None,
+      [],
+      [],
+      soname=Some("libbaralias.so.1"),
+    ),
+  )
+  @fs.write_file(
+    install_dir + "/libfooalias.so.1",
+    make_test_elf64(62, 3, None, ["libbaralias.so.1"], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfooalias.so.1", "libxyz.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // A SONAME nothing provides still fails: point libfoo at a name no
+  // loaded object declares.
+  @fs.write_file(
+    install_dir + "/libfooalias.so.1",
+    make_test_elf64(62, 3, None, ["libmissing.so.9"], None, [], []),
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libmissing.so.9"))
+}
+
+///|
+async test "verify_binary_compat satisfies a same-list SONAME alias on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-direct-alias")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // One needed list names a file AND the SONAME that file embeds: the
+  // loader registers libbaralias.so.1 the moment libxyz.so.1 is loaded,
+  // so the second entry reuses it without any search.
+  @fs.write_file(
+    install_dir + "/libxyz.so.1",
+    make_test_elf64(
+      62,
+      3,
+      None,
+      [],
+      None,
+      [],
+      [],
+      soname=Some("libbaralias.so.1"),
+    ),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libxyz.so.1", "libbaralias.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+}
+
+///|
+async test "verify_binary_compat allows an unversioned provider on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-unversioned")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // The app records a DT_VERNEED for MOON_PR15_1.0, but the provider was
+  // relinked without any version script — no .gnu.version_d at all. ld.so
+  // warns "no version information available" yet still binds and runs.
+  @fs.write_file(
+    install_dir + "/libmoonver.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libmoonver.so.1"],
+    Some("$ORIGIN"),
+    [("libmoonver.so.1", ["MOON_PR15_1.0"])],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // A provider that defines OTHER versions but not the required one is
+  // a hard failure for the real loader — still rejected.
+  @fs.write_file(
+    install_dir + "/libmoonver.so.1",
+    make_test_elf64(62, 3, None, [], None, [], ["OTHER_1.0"]),
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("MOON_PR15_1.0"))
+}
+
+///|
+async test "verify_binary_compat checks transitive dependencies on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-transitive")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // libfoo.so.1 resolves beside the binary but itself needs libbar.so.1.
+  @fs.write_file(
+    install_dir + "/libfoo.so.1",
+    make_test_elf64(62, 3, None, ["libbar.so.1"], Some("$ORIGIN"), [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfoo.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  // libbar missing: the loader would fail at startup, so must we.
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libbar.so.1"))
+  // With libbar staged beside libfoo (its own $ORIGIN), the chain holds.
+  @fs.write_file(
+    install_dir + "/libbar.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+}
+
+///|
+test "ld_library_dirs keeps absolute entries only" {
+  assert_eq(ld_library_dirs(Some("/a:/b::rel/lib:$ORIGIN:/c ")), [
+    "/a", "/b", "/c",
+  ])
+  assert_eq(ld_library_dirs(None), [])
+  assert_eq(ld_library_dirs(Some("")), [])
+}
+
+///|
+async test "verify_binary_compat checks required symbol versions on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-versions")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // A provider library that defines only GLIBC_2.2.5.
+  let provider = make_test_elf64(62, 3, None, [], None, [], ["GLIBC_2.2.5"])
+  @fs.write_file(install_dir + "/libfakec.so.6", provider)
+  // GLIBC_99.0 is not defined by the provider: rejected via its verdef.
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfakec.so.6"],
+    Some("$ORIGIN"),
+    [("libfakec.so.6", ["GLIBC_99.0"])],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-dsh", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("GLIBC_99.0"))
+  assert_true(error.contains("does not provide"))
+  // A requirement the provider does define installs fine.
+  let healthy = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfakec.so.6"],
+    Some("$ORIGIN"),
+    [("libfakec.so.6", ["GLIBC_2.2.5"])],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-cli", healthy, false, install_dir)
+}
+
+///|
+async test "verify_binary_compat checks non-GLIBC versions on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-glibcxx")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // A provider library that defines GLIBCXX_3.4.21 but not GLIBCXX_9.9.99.
+  let provider = make_test_elf64(62, 3, None, [], None, [], ["GLIBCXX_3.4.21"])
+  @fs.write_file(install_dir + "/libfakexx.so.6", provider)
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfakexx.so.6"],
+    Some("$ORIGIN"),
+    [("libfakexx.so.6", ["GLIBCXX_9.9.99"])],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("GLIBCXX_9.9.99"))
+  // A requirement the provider does define installs fine.
+  let ok = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfakexx.so.6"],
+    Some("$ORIGIN"),
+    [("libfakexx.so.6", ["GLIBCXX_3.4.21"])],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", ok, false, install_dir)
+}
+
+///|
+test "parse_host_libc detects gnu and musl systems" {
+  assert_eq(
+    parse_host_libc("ldd (Ubuntu GLIBC 2.35-0ubuntu3.14) 2.35\nCopyright\n"),
+    Some("2.35"),
+  )
+  assert_eq(
+    parse_host_libc("musl libc (x86_64)\nVersion 1.2.5\n"),
+    Some("musl"),
+  )
+  assert_eq(parse_host_libc(""), None)
+}
+
+///|
+test "version_lt compares dotted numeric versions" {
+  assert_true(version_lt("2.35", "2.38"))
+  assert_true(version_lt("2.9", "2.35"))
+  assert_true(!version_lt("2.38", "2.38"))
+  assert_true(!version_lt("2.38.1", "2.38"))
+  assert_true(version_lt("2.38", "2.38.1"))
+}
+
+///|
+test "manifest glibc-min is parsed and validated" {
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"glibc-min\":\"2.38\"}]}"
+  let config = parse_artifact_config(manifest, "cmd/cli", "cli")
+  assert_eq(config.unwrap().glibc_min, Some("2.38"))
+  let bad = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"glibc-min\":\"latest\"}]}"
+  assert_true(
+    try {
+      ignore(parse_artifact_config(bad, "cmd/cli", "cli"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let override_manifest = "{\"repository\":\"https://github.com/acme/tools\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"pkg-fmt\":\"bin\",\"overrides\":{\"linux-x86_64\":{\"glibc-min\":\"2.38\"}}}]}"
+  let set = parse_artifact_config_set(override_manifest, "cmd/cli", "cli")
+  assert_eq(
+    artifact_config_for_target(set.unwrap(), "linux-x86_64").glibc_min,
+    Some("2.38"),
+  )
+  assert_eq(
+    artifact_config_for_target(set.unwrap(), "darwin-aarch64").glibc_min,
+    None,
+  )
+}
+
+///|
+async test "declared glibc-min aborts install before download on linux" {
+  guard require_platform().has_prefix("linux") else { return }
+  let root = @fs.tmpdir(prefix="moon-binstall-glibc-min")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"version\":\"1.2.3\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"glibc-min\":\"99.0\"}]}"
+  let manifest_path = root + "/moon-binstall.json"
+  @fs.write_file(manifest_path, manifest)
+  let full_transport = make_registry_fixture_transport(root, false)
+  let transport = FixtureTransport::{
+    responses: [full_transport.responses[2]],
+    files: [],
+  }
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3",
+    "--manifest-path",
+    manifest_path,
+    "--bin-dir",
+    root + "/installed",
+    "--target",
+    "linux-x86_64",
+  ])
+  let error = try {
+    install_many_using(options, Fixture(transport))
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("requires glibc >= 99.0"))
+  assert_true(!@fs.exists(root + "/installed/cli"))
+}
+
+///|
+async test "declared glibc-min does not apply to a cross-architecture fetch" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let root = @fs.tmpdir(prefix="moon-binstall-cross-glibc")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let manifest = "{\"repository\":\"https://github.com/acme/tools\",\"version\":\"1.2.3\",\"packages\":[{\"package\":\"cmd/cli\",\"binary\":\"cli\",\"glibc-min\":\"99.0\",\"pkg-url\":\"{repo}/releases/download/v{version}/{bin}-{target}\",\"pkg-fmt\":\"bin\"}]}"
+  let manifest_path = root + "/moon-binstall.json"
+  @fs.write_file(manifest_path, manifest)
+  let arm_asset = root + "/cli-linux-aarch64"
+  @fs.write_file(arm_asset, "arm64 payload\n")
+  let arm_digest = fixture_digest(arm_asset)
+  let asset_url = "https://github.com/acme/tools/releases/download/v1.2.3/cli-linux-aarch64"
+  let release_url = "https://api.github.com/repos/acme/tools/releases/tags/v1.2.3"
+  let release = "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"cli-linux-aarch64\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{arm_digest}\"}]}"
+  let transport = FixtureTransport::{
+    responses: [(release_url, release)],
+    files: [(asset_url, arm_asset)],
+  }
+  let options = parse_batch_options([
+    "acme/toolkit/cmd/cli@1.2.3",
+    "--manifest-path",
+    manifest_path,
+    "--bin-dir",
+    root + "/installed",
+    "--target",
+    "linux-aarch64",
+  ])
+  install_many_using(options, Fixture(transport))
+  assert_eq(@fs.read_file(root + "/installed/cli").text(), "arm64 payload\n")
+}
+
+///|
+async test "elf_file_usable accepts a full ELF and a symlink to it" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let dir = @fs.tmpdir(prefix="moon-binstall-usable")
+  defer (@fs.rmdir(dir, recursive=true) catch { _ => () })
+  let loader = dir + "/ld-real.so.2"
+  @fs.write_file(loader, make_test_elf64(62, 3, None, [], None, [], []))
+  assert_true(elf_file_usable(loader, 62))
+  // Distros link /lib64/ld-linux through a symlink: the target's type,
+  // permissions and size must be inspected, never the link's lstat size.
+  let link = dir + "/ld-link.so.2"
+  @fs.symlink(link, target=loader)
+  assert_true(@fs.kind(link) is Regular)
+  assert_true(elf_file_usable(link, 62))
+  // A truncated prefix of the same file is still refused.
+  let short = dir + "/ld-short.so.2"
+  let whole = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(short, whole[:20].to_owned())
+  assert_true(!elf_file_usable(short, 62))
 }
