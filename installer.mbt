@@ -1066,12 +1066,15 @@ fn elf_machine(binary : Bytes) -> Int? {
 
 ///|
 /// Dependencies extracted from a little-endian ELF64 file without executing
-/// it: the PT_INTERP loader path, DT_NEEDED sonames, and required GLIBC_*
-/// symbol versions.
+/// it: the PT_INTERP loader path, DT_NEEDED sonames, DT_RUNPATH/DT_RPATH
+/// search paths, required symbol versions by provider library, and the
+/// version names this file itself defines.
 priv struct ElfDeps {
   interp : String?
   needed : Array[String]
-  glibc_versions : Array[String]
+  mut runpath : String?
+  verneed : Array[(String, String)]
+  verdef : Array[String]
 }
 
 ///|
@@ -1170,32 +1173,38 @@ fn parse_elf64_deps(binary : Bytes) -> ElfDeps? {
       dyn_size = elf_u64le(binary, p + 32)
     }
   }
-  let needed : Array[String] = []
-  let glibc_versions : Array[String] = []
-  if dyn_offset >= 0 {
-    parse_dynamic_deps(
-      binary, dyn_offset, dyn_size, loads, needed, glibc_versions,
-    )
+  let deps : ElfDeps = {
+    interp,
+    needed: [],
+    runpath: None,
+    verneed: [],
+    verdef: [],
   }
-  Some({ interp, needed, glibc_versions })
+  if dyn_offset >= 0 {
+    parse_dynamic_deps(binary, dyn_offset, dyn_size, loads, deps)
+  }
+  Some(deps)
 }
 
 ///|
-/// Walk the .dynamic entries for DT_NEEDED, DT_STRTAB, DT_VERNEED and
-/// DT_VERNEEDNUM, resolving string-table references through PT_LOAD
-/// segments and collecting required GLIBC_* symbol versions.
+/// Walk the .dynamic entries for DT_NEEDED, DT_STRTAB, DT_RPATH,
+/// DT_RUNPATH, DT_VERNEED/NUM and DT_VERDEF/NUM, resolving string-table
+/// references through PT_LOAD segments into `deps`.
 fn parse_dynamic_deps(
   binary : Bytes,
   dyn_offset : Int,
   dyn_size : Int64,
   loads : Array[(Int64, Int64, Int64)],
-  needed : Array[String],
-  glibc_versions : Array[String],
+  deps : ElfDeps,
 ) -> Unit {
   let needed_offsets : Array[Int] = []
   let mut strtab_vaddr = -1L
+  let mut rpath_offset = -1L
+  let mut runpath_offset = -1L
   let mut verneed_vaddr = -1L
   let mut verneed_num = 0L
+  let mut verdef_vaddr = -1L
+  let mut verdef_num = 0L
   let count = (dyn_size / 16).to_int()
   for i = 0; i < count; i = i + 1 {
     let entry = dyn_offset + i * 16
@@ -1210,6 +1219,18 @@ fn parse_dynamic_deps(
       needed_offsets.push(value.to_int())
     } else if tag == 5L {
       strtab_vaddr = value
+    } else if tag == 15L {
+      // DT_RPATH
+      rpath_offset = value
+    } else if tag == 29L {
+      // DT_RUNPATH
+      runpath_offset = value
+    } else if tag == 1879048188L {
+      // DT_VERDEF (0x6ffffffc)
+      verdef_vaddr = value
+    } else if tag == 1879048189L {
+      // DT_VERDEFNUM (0x6ffffffd)
+      verdef_num = value
     } else if tag == 1879048190L {
       // DT_VERNEED (0x6ffffffe)
       verneed_vaddr = value
@@ -1224,26 +1245,53 @@ fn parse_dynamic_deps(
     None => return
   }
   for offset in needed_offsets {
-    needed.push(elf_cstr(binary, strtab + offset))
+    deps.needed.push(elf_cstr(binary, strtab + offset))
   }
-  guard verneed_vaddr >= 0L else { return }
-  let verneed = match elf_vaddr_offset(loads, verneed_vaddr) {
-    Some(base) => base.to_int()
-    None => return
+  // DT_RUNPATH supersedes DT_RPATH in the loader search order.
+  if runpath_offset >= 0L {
+    deps.runpath = Some(elf_cstr(binary, strtab + runpath_offset.to_int()))
+  } else if rpath_offset >= 0L {
+    deps.runpath = Some(elf_cstr(binary, strtab + rpath_offset.to_int()))
   }
-  collect_verneed(binary, verneed, verneed_num.to_int(), strtab, glibc_versions)
+  if verneed_vaddr >= 0L {
+    match elf_vaddr_offset(loads, verneed_vaddr) {
+      Some(base) =>
+        collect_verneed(
+          binary,
+          base.to_int(),
+          verneed_num.to_int(),
+          strtab,
+          deps.verneed,
+        )
+      None => ()
+    }
+  }
+  if verdef_vaddr >= 0L {
+    match elf_vaddr_offset(loads, verdef_vaddr) {
+      Some(base) =>
+        collect_verdef(
+          binary,
+          base.to_int(),
+          verdef_num.to_int(),
+          strtab,
+          deps.verdef,
+        )
+      None => ()
+    }
+  }
 }
 
 ///|
-/// Collect the GLIBC_* version strings named by .gnu.version_r entries.
-/// Each Elf64_Verneed is 16 bytes (vn_aux/vn_next are u32) and each
-/// Elf64_Vernaux is 16 bytes (vna_name/vna_next are u32).
+/// Collect (provider soname, required version) pairs from .gnu.version_r.
+/// Each Elf64_Verneed is 16 bytes (vn_file/vn_aux/vn_next are u32) and each
+/// Elf64_Vernaux is 16 bytes (vna_name/vna_next are u32). All version
+/// namespaces are recorded — GLIBCXX_*, CXXABI_* and others, not just GLIBC_*.
 fn collect_verneed(
   binary : Bytes,
   offset : Int,
   count : Int,
   strtab : Int,
-  out : Array[String],
+  out : Array[(String, String)],
 ) -> Unit {
   let mut cursor = offset
   for i = 0; i < count; i = i + 1 {
@@ -1251,6 +1299,7 @@ fn collect_verneed(
       break
     }
     let vn_cnt = elf_u16le(binary, cursor + 2)
+    let provider = elf_cstr(binary, strtab + elf_u32le(binary, cursor + 4))
     let vn_aux = elf_u32le(binary, cursor + 8)
     let vn_next = elf_u32le(binary, cursor + 12)
     let mut aux = cursor + vn_aux
@@ -1258,9 +1307,9 @@ fn collect_verneed(
       if aux + 16 > binary.length() {
         break
       }
-      let name = elf_cstr(binary, strtab + elf_u32le(binary, aux + 8))
-      if name.has_prefix("GLIBC_") {
-        out.push(name[6:].to_owned())
+      let version = elf_cstr(binary, strtab + elf_u32le(binary, aux + 8))
+      if version != "" {
+        out.push((provider, version))
       }
       let vna_next = elf_u32le(binary, aux + 12)
       if vna_next == 0 {
@@ -1272,6 +1321,47 @@ fn collect_verneed(
       break
     }
     cursor = cursor + vn_next
+  }
+}
+
+///|
+/// Collect the version names a file defines in .gnu.version_d. Each
+/// Elf64_Verdef is 20 bytes (vd_aux/vd_next are u32) and each Elf64_Verdaux
+/// is 8 bytes (vda_name/vda_next are u32).
+fn collect_verdef(
+  binary : Bytes,
+  offset : Int,
+  count : Int,
+  strtab : Int,
+  out : Array[String],
+) -> Unit {
+  let mut cursor = offset
+  for i = 0; i < count; i = i + 1 {
+    if cursor + 20 > binary.length() {
+      break
+    }
+    let vd_cnt = elf_u16le(binary, cursor + 6)
+    let vd_aux = elf_u32le(binary, cursor + 12)
+    let vd_next = elf_u32le(binary, cursor + 16)
+    let mut aux = cursor + vd_aux
+    for j = 0; j < vd_cnt; j = j + 1 {
+      if aux + 8 > binary.length() {
+        break
+      }
+      let name = elf_cstr(binary, strtab + elf_u32le(binary, aux))
+      if name != "" {
+        out.push(name)
+      }
+      let vda_next = elf_u32le(binary, aux + 4)
+      if vda_next == 0 {
+        break
+      }
+      aux = aux + vda_next
+    }
+    if vd_next == 0 {
+      break
+    }
+    cursor = cursor + vd_next
   }
 }
 
@@ -1339,26 +1429,29 @@ async fn host_libc() -> String? {
 }
 
 ///|
-/// Sonames known to the host loader cache (`ldconfig -p`, non-executing —
-/// it only reads /etc/ld.so.cache).
-async fn ldconfig_sonames() -> Array[String] {
-  let names : Array[String] = []
+/// Soname → path map of the host loader cache (`ldconfig -p`,
+/// non-executing — it only reads /etc/ld.so.cache).
+async fn ldconfig_map() -> Map[String, String] {
+  let map : Map[String, String] = Map([])
   let output = @shell.Cmd("ldconfig", ["-p"]).output(
     timeout_ms=15000,
     max_output_bytes=4194304,
   ) catch {
-    _ => return names
+    _ => return map
   }
   for line in output.stdout().split("\n") {
     let text = line.trim().to_owned()
-    if text.contains("=>") {
-      match text.split(" ").iter().next() {
-        Some(soname) => names.push(soname.to_owned())
-        None => ()
-      }
+    if !text.contains("=>") {
+      continue
+    }
+    let parts = text.split("=>").collect()
+    let soname = parts[0].trim().split(" ").iter().next().unwrap_or("")
+    let path = parts[1].trim().to_owned()
+    if soname != "" && path != "" {
+      map[soname.to_owned()] = path
     }
   }
-  names
+  map
 }
 
 ///|
@@ -1383,49 +1476,95 @@ async fn library_dirs() -> Array[String] {
 }
 
 ///|
-/// DT_NEEDED sonames that resolve nowhere on this host — checked against
-/// the ldconfig cache and the usual library directories without running
-/// anything.
-async fn missing_libraries(needed : Array[String]) -> Array[String] {
-  let missing : Array[String] = []
-  guard !needed.is_empty() else { return missing }
-  let cache = ldconfig_sonames()
-  let dirs = library_dirs()
-  for soname in needed {
-    if soname.contains("/") {
-      if !@fs.exists(soname) {
-        missing.push(soname)
-      }
+/// Expand the DT_RUNPATH/DT_RPATH search list into directories to probe.
+/// `$ORIGIN` resolves against the directory the binary will be installed
+/// into (its final location, not the private staging directory). Entries
+/// containing other `$` tokens ($LIB, $PLATFORM) or relative paths are
+/// ignored — they resolve against an unknown context.
+fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
+  let dirs : Array[String] = []
+  let value = match runpath {
+    Some(text) => text
+    None => return dirs
+  }
+  for entry in value.split(":") {
+    let dir = entry.trim().to_owned()
+    if dir == "" {
       continue
     }
-    let mut found = cache.contains(soname)
-    if !found {
-      for dir in dirs {
-        if @fs.exists(dir + "/" + soname) {
-          found = true
-          break
-        }
-      }
-    }
-    if !found {
-      missing.push(soname)
+    if dir.contains("$ORIGIN") {
+      dirs.push(dir.replace_all(old="$ORIGIN", new=origin))
+    } else if dir.contains("$") {
+      continue
+    } else if dir.has_prefix("/") {
+      dirs.push(dir)
     }
   }
-  missing
+  dirs
+}
+
+///|
+/// Resolve a DT_NEEDED soname to a host path, honoring the ELF's own
+/// RUNPATH/RPATH directories first, then the ldconfig cache, then the
+/// usual library directories — all without running anything.
+async fn resolve_soname(
+  soname : String,
+  rpath_dirs : Array[String],
+  cache : Map[String, String],
+  dirs : Array[String],
+) -> String? {
+  if soname.contains("/") {
+    return if @fs.exists(soname) { Some(soname) } else { None }
+  }
+  for dir in rpath_dirs {
+    let candidate = dir + "/" + soname
+    if @fs.exists(candidate) {
+      return Some(candidate)
+    }
+  }
+  match cache.get(soname) {
+    Some(path) => return Some(path)
+    None => ()
+  }
+  for dir in dirs {
+    let candidate = dir + "/" + soname
+    if @fs.exists(candidate) {
+      return Some(candidate)
+    }
+  }
+  None
+}
+
+///|
+/// The version names a library file defines in .gnu.version_d, or None
+/// when the file cannot be read or parsed as ELF64. An empty result means
+/// the library parses but defines no versions (for example a musl libc).
+async fn library_defined_versions(path : String) -> Array[String]? {
+  let bytes = @fs.read_file(path).binary() catch { _ => return None }
+  let deps = match parse_elf64_deps(bytes) {
+    Some(value) => value
+    None => return None
+  }
+  Some(deps.verdef)
 }
 
 ///|
 /// Reject a staged binary that cannot run on this host — inspected without
 /// executing the downloaded file or running `ldd` on it, so hostile or
-/// corrupted artifacts stay inert. An ELF built for this architecture is
-/// rejected when its PT_INTERP loader is missing, a DT_NEEDED library is
-/// unresolvable, or it requires a newer glibc than the host provides.
-/// Other formats and foreign architectures are skipped — they may be
-/// fetched on purpose for a different machine.
+/// corrupted artifacts stay inert. A host-architecture ELF64 is rejected
+/// when it is not an executable (e.g. a relocatable object), its program
+/// headers are malformed, its PT_INTERP loader is absent or missing, a
+/// DT_NEEDED library cannot be resolved through its RUNPATH/RPATH, the
+/// ldconfig cache and the usual library directories, or a required symbol
+/// version (GLIBC_*, GLIBCXX_*, ...) is not defined by the resolved
+/// provider library. Other formats and foreign architectures are skipped —
+/// they may be fetched on purpose for a different machine. `install_dir`
+/// is the binary's final destination directory, used to expand `$ORIGIN`.
 async fn verify_binary_compat(
   path : String,
   binary : Bytes,
   skip_compat_check : Bool,
+  install_dir : String,
 ) -> Unit {
   if skip_compat_check {
     return
@@ -1440,11 +1579,25 @@ async fn verify_binary_compat(
     None => return
   }
   guard machine == host else { return }
+  let name = path.split("/").last().unwrap_or(path)
+  // e_type: only ET_EXEC (2) and ET_DYN (3) can be executed; a host-arch
+  // ET_REL object file must not slip through as "unknown format".
+  let etype = elf_u16le(binary, 16)
+  guard etype == 2 || etype == 3 else {
+    fail(
+      "installed binary \{name} cannot run on this system: ELF type \{etype} is not executable. Build it from source instead, or pass --skip-compat-check to install anyway.",
+    )
+  }
+  // Only ELF64 is parsed; other classes (e.g. a 32-bit binary) fall
+  // through unverified rather than being rejected as malformed.
+  guard binary[4].to_int() == 2 else { return }
   let deps = match parse_elf64_deps(binary) {
     Some(value) => value
-    None => return
+    None =>
+      fail(
+        "installed binary \{name} cannot run on this system: malformed ELF64 program headers. Build it from source instead, or pass --skip-compat-check to install anyway.",
+      )
   }
-  let name = path.split("/").last().unwrap_or(path)
   match deps.interp {
     Some(interp) =>
       if interp != "" && !@fs.exists(interp) {
@@ -1452,36 +1605,47 @@ async fn verify_binary_compat(
           "installed binary \{name} cannot run on this system: ELF interpreter \{interp} is missing. Build it from source instead, or pass --skip-compat-check to install anyway.",
         )
       }
-    None => ()
+    None =>
+      if !deps.needed.is_empty() {
+        fail(
+          "installed binary \{name} cannot run on this system: it needs shared libraries but has no ELF interpreter. Build it from source instead, or pass --skip-compat-check to install anyway.",
+        )
+      }
   }
-  let missing = missing_libraries(deps.needed)
+  let rpath_dirs = expand_runpath(deps.runpath, install_dir)
+  let cache = ldconfig_map()
+  let dirs = library_dirs()
+  let missing : Array[String] = []
+  for soname in deps.needed {
+    if resolve_soname(soname, rpath_dirs, cache, dirs) is None {
+      missing.push(soname)
+    }
+  }
   let missing_list = missing.join(", ")
   guard missing.is_empty() else {
     fail(
       "installed binary \{name} cannot run on this system: unresolved libraries \{missing_list}. Build it from source instead, or pass --skip-compat-check to install anyway.",
     )
   }
-  if deps.glibc_versions.is_empty() {
-    return
-  }
-  let mut required = deps.glibc_versions[0]
-  for version in deps.glibc_versions {
-    if version_lt(required, version) {
-      required = version
-    }
-  }
-  match host_libc() {
-    Some("musl") =>
-      fail(
-        "installed binary \{name} cannot run on this system: it requires glibc >= \{required} but this system uses musl libc. Build it from source instead, or pass --skip-compat-check to install anyway.",
-      )
-    Some(version) =>
-      if version_lt(version, required) {
+  for requirement in deps.verneed {
+    let (provider, version) = requirement
+    let provider_path = match resolve_soname(provider, rpath_dirs, cache, dirs) {
+      Some(resolved) => resolved
+      None =>
         fail(
-          "installed binary \{name} cannot run on this system: it requires glibc >= \{required} but this system has glibc \{version}. Build it from source instead, or pass --skip-compat-check to install anyway.",
+          "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which cannot be located. Build it from source instead, or pass --skip-compat-check to install anyway.",
         )
-      }
-    None => ()
+    }
+    match library_defined_versions(provider_path) {
+      Some(defined) =>
+        if !defined.contains(version) {
+          fail(
+            "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{provider_path} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
+          )
+        }
+      // An unparseable provider is left to the runtime loader.
+      None => ()
+    }
   }
 }
 
@@ -1523,7 +1687,7 @@ async fn stage_install(
   let staging = staging_dir + "/" + item.binary
   @fs.write_file(staging, binary, create_mode=CreateNew, permission=0o600)
   @fs.chmod(staging, 0o755)
-  verify_binary_compat(staging, binary, skip_compat_check)
+  verify_binary_compat(staging, binary, skip_compat_check, bin_dir)
   ownership_transferred = true
   { destination, staging, staging_dir, }
 }
@@ -1771,7 +1935,7 @@ pub async fn install_from_asset_file(
   let staging = staging_dir + "/" + binary
   @fs.write_file(staging, content, create_mode=CreateNew, permission=0o600)
   @fs.chmod(staging, 0o755)
-  verify_binary_compat(staging, content, false)
+  verify_binary_compat(staging, content, false, bin_dir)
   @fs.rename(staging, destination, replace=force)
   owns_directory = false
   @fs.rmdir(staging_dir, recursive=true) catch {

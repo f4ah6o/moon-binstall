@@ -1437,9 +1437,12 @@ test "elf_machine detects little-endian ELF binaries" {
 /// verify_binary_compat without executing anything.
 fn make_test_elf64(
   machine : Int,
+  etype : Int,
   interp : String?,
   needed : Array[String],
-  glibc_versions : Array[String],
+  runpath : String?,
+  verneed : Array[(String, Array[String])],
+  verdef : Array[String],
 ) -> Bytes raise {
   let out : Array[Byte] = []
   fn put8(value : Int) -> Unit {
@@ -1484,16 +1487,38 @@ fn make_test_elf64(
   for name in needed {
     strtab_add(name)
   }
-  if !glibc_versions.is_empty() {
-    strtab_add("libc.so.6")
-    for version in glibc_versions {
-      strtab_add("GLIBC_\{version}")
+  match runpath {
+    Some(text) => strtab_add(text)
+    None => ()
+  }
+  for entry in verneed {
+    let (provider, versions) = entry
+    strtab_add(provider)
+    for version in versions {
+      strtab_add(version)
     }
   }
+  for name in verdef {
+    strtab_add(name)
+  }
 
+  let verneed_len = {
+    let mut len = 0
+    for entry in verneed {
+      let (_, versions) = entry
+      len = len + 16 + 16 * versions.length()
+    }
+    len
+  }
+  let verdef_len = if verdef.is_empty() { 0 } else { 20 + 8 * verdef.length() }
+  let has_dyn = needed.length() +
+    verneed_len +
+    verdef_len +
+    (if runpath is Some(_) { 1 } else { 0 }) >
+    0
   let phnum = 1 +
     (if interp is Some(_) { 1 } else { 0 }) +
-    (if needed.length() + glibc_versions.length() > 0 { 1 } else { 0 })
+    (if has_dyn { 1 } else { 0 })
   let interp_off = 64 + 56 * phnum
   let interp_len = match interp {
     Some(text) => text.length() + 1
@@ -1501,17 +1526,20 @@ fn make_test_elf64(
   }
   let dyn_entry_count = needed.length() +
     3 +
-    (if glibc_versions.is_empty() { 0 } else { 2 })
+    (if runpath is Some(_) { 1 } else { 0 }) +
+    (if verneed.is_empty() { 0 } else { 2 }) +
+    (if verdef.is_empty() { 0 } else { 2 })
   let dyn_off = interp_off + interp_len
   let dyn_len = 16 * dyn_entry_count
   let strtab_off = dyn_off + dyn_len
   let verneed_off = strtab_off + strtab.length()
-  let total = if needed.length() + glibc_versions.length() == 0 {
+  let verdef_off = verneed_off + verneed_len
+  let total = if !has_dyn {
     interp_off + interp_len
-  } else if glibc_versions.is_empty() {
+  } else if verneed.is_empty() && verdef.is_empty() {
     verneed_off
   } else {
-    verneed_off + 16 + 16 * glibc_versions.length()
+    verdef_off + verdef_len
   }
 
   // ELF header (64 bytes).
@@ -1522,7 +1550,7 @@ fn make_test_elf64(
   put8(1)
   put8(0)
   put64(0L)
-  put16(2)
+  put16(etype)
   put16(machine)
   put32(1)
   put64(0L)
@@ -1553,7 +1581,7 @@ fn make_test_elf64(
   }
   // PT_LOAD: identity vaddr == file offset over the whole file.
   put_phdr(1, 0L, total.to_int64())
-  if needed.length() + glibc_versions.length() > 0 {
+  if has_dyn {
     put_phdr(2, dyn_off.to_int64(), dyn_len.to_int64())
   }
 
@@ -1565,7 +1593,7 @@ fn make_test_elf64(
     None => ()
   }
 
-  if needed.length() + glibc_versions.length() > 0 {
+  if has_dyn {
     fn put_dyn(tag : Int64, value : Int64) -> Unit {
       put64(tag)
       put64(value)
@@ -1575,24 +1603,46 @@ fn make_test_elf64(
     }
     put_dyn(5L, strtab_off.to_int64())
     put_dyn(10L, strtab.length().to_int64())
-    if !glibc_versions.is_empty() {
+    match runpath {
+      Some(_) => put_dyn(29L, strtab_offsets[runpath.unwrap()].to_int64())
+      None => ()
+    }
+    if !verneed.is_empty() {
       put_dyn(1879048190L, verneed_off.to_int64())
-      put_dyn(1879048191L, 1L)
+      put_dyn(1879048191L, verneed.length().to_int64())
+    }
+    if !verdef.is_empty() {
+      put_dyn(1879048188L, verdef_off.to_int64())
+      put_dyn(1879048189L, 1L)
     }
     put_dyn(0L, 0L)
     put_bytes(strtab)
-    if !glibc_versions.is_empty() {
+    for pi, entry in verneed {
+      let (provider, versions) = entry
       put16(1)
-      put16(glibc_versions.length())
-      put32(strtab_offsets["libc.so.6"])
+      put16(versions.length())
+      put32(strtab_offsets[provider])
       put32(16)
-      put32(0)
-      for i, version in glibc_versions {
+      put32(if pi + 1 < verneed.length() { 16 + 16 * versions.length() } else { 0 })
+      for j, version in versions {
         put32(0)
         put16(0)
-        put16(i + 2)
-        put32(strtab_offsets["GLIBC_\{version}"])
-        put32(if i + 1 < glibc_versions.length() { 16 } else { 0 })
+        put16(j + 2)
+        put32(strtab_offsets[version])
+        put32(if j + 1 < versions.length() { 16 } else { 0 })
+      }
+    }
+    if !verdef.is_empty() {
+      put16(1)
+      put16(0)
+      put16(1)
+      put16(verdef.length())
+      put32(0)
+      put32(20)
+      put32(0)
+      for j, name in verdef {
+        put32(strtab_offsets[name])
+        put32(if j + 1 < verdef.length() { 8 } else { 0 })
       }
     }
   }
@@ -1603,22 +1653,32 @@ fn make_test_elf64(
 }
 
 ///|
-test "parse_elf64_deps extracts interp, needed and glibc requirements" {
+test "parse_elf64_deps extracts interp, needed, runpath and versions" {
   let elf = make_test_elf64(
     62,
+    2,
     Some("/lib64/ld-linux-x86-64.so.2"),
     ["libc.so.6", "libm.so.6"],
-    ["2.34", "2.38"],
+    Some("$ORIGIN/lib"),
+    [("libc.so.6", ["GLIBC_2.34", "GLIBC_2.38"])],
+    [],
   )
   let deps = parse_elf64_deps(elf).unwrap()
   assert_eq(deps.interp, Some("/lib64/ld-linux-x86-64.so.2"))
   assert_eq(deps.needed, ["libc.so.6", "libm.so.6"])
-  assert_eq(deps.glibc_versions, ["2.34", "2.38"])
-  let static_elf = make_test_elf64(62, None, [], [])
+  assert_eq(deps.runpath, Some("$ORIGIN/lib"))
+  assert_eq(
+    deps.verneed,
+    [("libc.so.6", "GLIBC_2.34"), ("libc.so.6", "GLIBC_2.38")],
+  )
+  let libelf = make_test_elf64(62, 3, None, [], None, [], ["GLIBCXX_3.4.21"])
+  let libdeps = parse_elf64_deps(libelf).unwrap()
+  assert_eq(libdeps.verdef, ["GLIBCXX_3.4.21"])
+  let static_elf = make_test_elf64(62, 2, None, [], None, [], [])
   let static_deps = parse_elf64_deps(static_elf).unwrap()
   assert_eq(static_deps.interp, None)
   assert_eq(static_deps.needed, [])
-  assert_eq(static_deps.glibc_versions, [])
+  assert_eq(static_deps.verneed, [])
   assert_true(parse_elf64_deps(Bytes::from_array([b'n', b'o'])) is None)
   // A 32-bit ELF is not parsed for dependencies.
   let elf32 : Array[Byte] = [
@@ -1628,16 +1688,28 @@ test "parse_elf64_deps extracts interp, needed and glibc requirements" {
 }
 
 ///|
+test "expand_runpath expands $ORIGIN and drops unexpandable entries" {
+  assert_eq(expand_runpath(None, "/opt/bin"), [])
+  assert_eq(
+    expand_runpath(Some("$ORIGIN:$ORIGIN/lib:/abs/lib:$LIB:rel/lib"), "/opt/bin"),
+    ["/opt/bin", "/opt/bin/lib", "/abs/lib"],
+  )
+}
+
+///|
 async test "verify_binary_compat rejects a missing ELF interpreter on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let elf = make_test_elf64(
     62,
+    2,
     Some("/nonexistent/ld-binstall-missing.so"),
+    [],
+    None,
     [],
     [],
   )
   let error = try {
-    verify_binary_compat("/tmp/staged-dsh", elf, false)
+    verify_binary_compat("/tmp/staged-dsh", elf, false, "/tmp")
     ""
   } catch {
     error => error.to_string()
@@ -1647,11 +1719,54 @@ async test "verify_binary_compat rejects a missing ELF interpreter on linux" {
   // A foreign-architecture ELF with the same bogus interpreter is skipped.
   let foreign = make_test_elf64(
     183,
+    2,
     Some("/nonexistent/ld-binstall-missing.so"),
+    [],
+    None,
     [],
     [],
   )
-  verify_binary_compat("/tmp/staged-dsh-arm", foreign, false)
+  verify_binary_compat("/tmp/staged-dsh-arm", foreign, false, "/tmp")
+}
+
+///|
+async test "verify_binary_compat rejects non-executable and malformed ELF" {
+  guard require_platform() == "linux-x86_64" else { return }
+  // A relocatable object (ET_REL) like `gcc -c` output is not executable.
+  let object = make_test_elf64(62, 1, None, [], None, [], [])
+  let error = try {
+    verify_binary_compat("/tmp/object.o", object, false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("not executable"))
+  // An ET_EXEC with zero program headers is malformed and must fail closed.
+  let header : Array[Byte] = [
+    0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 62, 0,
+  ]
+  let bytes = header
+  for i = 0; i < 44; i = i + 1 {
+    bytes.push(0)
+  }
+  let malformed = try {
+    verify_binary_compat(
+      "/tmp/stub", Bytes::from_array(bytes), false, "/tmp",
+    )
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(malformed.contains("malformed"))
+  // A dynamic binary without PT_INTERP cannot load its libraries.
+  let no_interp = make_test_elf64(62, 2, None, ["libc.so.6"], None, [], [])
+  let error2 = try {
+    verify_binary_compat("/tmp/staged", no_interp, false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error2.contains("no ELF interpreter"))
 }
 
 ///|
@@ -1659,12 +1774,15 @@ async test "verify_binary_compat rejects unresolved libraries on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let elf = make_test_elf64(
     62,
+    2,
     Some("/lib64/ld-linux-x86-64.so.2"),
     ["libdefinitelymissing99.so.1"],
+    None,
+    [],
     [],
   )
   let error = try {
-    verify_binary_compat("/tmp/staged-dsh", elf, false)
+    verify_binary_compat("/tmp/staged-dsh", elf, false, "/tmp")
     ""
   } catch {
     error => error.to_string()
@@ -1674,29 +1792,110 @@ async test "verify_binary_compat rejects unresolved libraries on linux" {
 }
 
 ///|
-async test "verify_binary_compat rejects a newer glibc on linux" {
+async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
   guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-rpath")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  @fs.write_file(install_dir + "/libfake99.so", "not an elf but exists\n")
   let elf = make_test_elf64(
     62,
+    2,
     Some("/lib64/ld-linux-x86-64.so.2"),
-    ["libc.so.6"],
-    ["99.0"],
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // Without the rpath hit the same soname is missing.
+  let no_rpath = make_test_elf64(
+    62,
+    2,
+    Some("/lib64/ld-linux-x86-64.so.2"),
+    ["libfake99.so"],
+    None,
+    [],
+    [],
   )
   let error = try {
-    verify_binary_compat("/tmp/staged-dsh", elf, false)
+    verify_binary_compat("/tmp/staged-app", no_rpath, false, install_dir)
     ""
   } catch {
     error => error.to_string()
   }
-  assert_true(error.contains("requires glibc >= 99.0"))
-  // ...while an old requirement against a resolvable libc installs fine.
-  let healthy = make_test_elf64(
+  assert_true(error.contains("libfake99.so"))
+}
+
+///|
+async test "verify_binary_compat checks required symbol versions on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  // GLIBC_99.0 is not defined by the host libc: rejected via its verdef.
+  let elf = make_test_elf64(
     62,
+    2,
     Some("/lib64/ld-linux-x86-64.so.2"),
     ["libc.so.6"],
-    ["2.0"],
+    None,
+    [("libc.so.6", ["GLIBC_99.0"])],
+    [],
   )
-  verify_binary_compat("/tmp/staged-cli", healthy, false)
+  let error = try {
+    verify_binary_compat("/tmp/staged-dsh", elf, false, "/tmp")
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("GLIBC_99.0"))
+  // GLIBC_2.2.5 is defined by every modern glibc: installs fine.
+  let healthy = make_test_elf64(
+    62,
+    2,
+    Some("/lib64/ld-linux-x86-64.so.2"),
+    ["libc.so.6"],
+    None,
+    [("libc.so.6", ["GLIBC_2.2.5"])],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-cli", healthy, false, "/tmp")
+}
+
+///|
+async test "verify_binary_compat checks non-GLIBC versions on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-glibcxx")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  // A provider library that defines GLIBCXX_3.4.21 but not GLIBCXX_9.9.99.
+  let provider = make_test_elf64(
+    62, 3, None, [], None, [], ["GLIBCXX_3.4.21"],
+  )
+  @fs.write_file(install_dir + "/libfakexx.so.6", provider)
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some("/lib64/ld-linux-x86-64.so.2"),
+    ["libfakexx.so.6"],
+    Some("$ORIGIN"),
+    [("libfakexx.so.6", ["GLIBCXX_9.9.99"])],
+    [],
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("GLIBCXX_9.9.99"))
+  // A requirement the provider does define installs fine.
+  let ok = make_test_elf64(
+    62,
+    2,
+    Some("/lib64/ld-linux-x86-64.so.2"),
+    ["libfakexx.so.6"],
+    Some("$ORIGIN"),
+    [("libfakexx.so.6", ["GLIBCXX_3.4.21"])],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", ok, false, install_dir)
 }
 
 ///|

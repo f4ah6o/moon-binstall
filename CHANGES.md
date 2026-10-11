@@ -22,12 +22,15 @@
 
 - A compatibility check runs on each staged binary before it is moved into
   place, without executing the binary or running `ldd` on it. For a Linux
-  ELF binary matching the host architecture the installer reads `PT_INTERP`,
-  `DT_NEEDED` and required `GLIBC_*` symbol versions, then aborts with a
-  source-build hint when the interpreter is missing, a library is
-  unresolvable via the host loader cache and library directories, or the
-  host glibc is too old. Other formats and foreign architectures are
-  skipped, and `--skip-compat-check` opts out.
+  ELF64 binary matching the host architecture the installer rejects
+  non-executable `e_type` values and malformed program headers, then reads
+  `PT_INTERP`, `DT_NEEDED`, `DT_RUNPATH`/`DT_RPATH` and required symbol
+  versions (`GLIBC_*`, `GLIBCXX_*`, ...), aborting with a source-build
+  hint when the interpreter is missing, a library is unresolvable via the
+  declared runpath (`$ORIGIN` expands to the install directory), the host
+  loader cache and library directories, or a required version is not
+  defined by the resolved provider library. Other formats and foreign
+  architectures are skipped, and `--skip-compat-check` opts out.
 - Package entries and per-target overrides in `moon-binstall.json` accept an
   optional `glibc-min` (e.g. `"2.38"`). When an install targets the host's
   own Linux architecture the declared minimum is checked before

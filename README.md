@@ -254,13 +254,18 @@ By default the latest non-prerelease GitHub Release is used. Specify
 are fully downloaded and verified before the first destination is replaced.
 Before a staged binary is moved into place it is checked for runtime
 compatibility — statically, without executing it or running `ldd` on it.
-For a Linux ELF binary matching the host architecture, the installer reads
-its `PT_INTERP` loader path, `DT_NEEDED` library list and required
-`GLIBC_*` symbol versions, then fails the install — with a hint to build
-from source instead — when the interpreter is missing, a library cannot
-be resolved through the host loader cache and library directories, or the
-host glibc is older than required. Other formats and foreign architectures
-are skipped. Pass `--skip-compat-check` to install anyway. The destination directory must be added to `PATH`.
+For a Linux ELF64 binary matching the host architecture, the installer
+rejects anything that is not executable (`e_type` other than `ET_EXEC` or
+`ET_DYN`) or has malformed program headers, then reads its `PT_INTERP`
+loader path, `DT_NEEDED` library list, `DT_RUNPATH`/`DT_RPATH` search
+paths and required symbol versions (`GLIBC_*`, `GLIBCXX_*`, ...), and
+fails the install — with a hint to build from source instead — when the
+interpreter is missing, a library cannot be resolved through the declared
+runpath (`$ORIGIN` expands to the install directory), the host loader
+cache and the usual library directories, or a required version is not
+defined by the resolved provider library's own version definitions.
+Other formats and foreign architectures are skipped. Pass
+`--skip-compat-check` to install anyway. The destination directory must be added to `PATH`.
 
 ## Security
 
