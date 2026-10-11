@@ -1539,6 +1539,7 @@ fn make_test_elf64(
   verneed : Array[(String, Array[String])],
   verdef : Array[String],
   rpath_tag? : Int64 = 29L,
+  soname? : String? = None,
 ) -> Bytes raise {
   let out : Array[Byte] = []
   fn put8(value : Int) -> Unit {
@@ -1597,6 +1598,10 @@ fn make_test_elf64(
   for name in verdef {
     strtab_add(name)
   }
+  match soname {
+    Some(text) => strtab_add(text)
+    None => ()
+  }
 
   let verneed_len = {
     let mut len = 0
@@ -1610,7 +1615,8 @@ fn make_test_elf64(
   let has_dyn = needed.length() +
     verneed_len +
     verdef_len +
-    (if runpath is Some(_) { 1 } else { 0 }) >
+    (if runpath is Some(_) { 1 } else { 0 }) +
+    (if soname is Some(_) { 1 } else { 0 }) >
     0
   let phnum = 1 +
     (if interp is Some(_) { 1 } else { 0 }) +
@@ -1623,6 +1629,7 @@ fn make_test_elf64(
   let dyn_entry_count = needed.length() +
     3 +
     (if runpath is Some(_) { 1 } else { 0 }) +
+    (if soname is Some(_) { 1 } else { 0 }) +
     (if verneed.is_empty() { 0 } else { 2 }) +
     (if verdef.is_empty() { 0 } else { 2 })
   let dyn_off = interp_off + interp_len
@@ -1701,6 +1708,10 @@ fn make_test_elf64(
     put_dyn(10L, strtab.length().to_int64())
     match runpath {
       Some(_) => put_dyn(rpath_tag, strtab_offsets[runpath.unwrap()].to_int64())
+      None => ()
+    }
+    match soname {
+      Some(_) => put_dyn(14L, strtab_offsets[soname.unwrap()].to_int64())
       None => ()
     }
     if !verneed.is_empty() {
@@ -2391,6 +2402,57 @@ async test "verify_binary_compat reuses an already-loaded library on linux" {
     error => error.to_string()
   }
   assert_true(error.contains("libbarreuse.so.1"))
+}
+
+///|
+async test "verify_binary_compat reuses a loaded object by its DT_SONAME on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-soname-alias")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // The file is named libxyz.so.1 but carries DT_SONAME libbar.so.1:
+  // once the loader maps it, a later DT_NEEDED for libbar.so.1 reuses
+  // the object even though libbar.so.1 does not exist on disk.
+  @fs.write_file(
+    install_dir + "/libxyz.so.1",
+    make_test_elf64(
+      62,
+      3,
+      None,
+      [],
+      None,
+      [],
+      [],
+      soname=Some("libbaralias.so.1"),
+    ),
+  )
+  @fs.write_file(
+    install_dir + "/libfooalias.so.1",
+    make_test_elf64(62, 3, None, ["libbaralias.so.1"], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfooalias.so.1", "libxyz.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // A SONAME nothing provides still fails: point libfoo at a name no
+  // loaded object declares.
+  @fs.write_file(
+    install_dir + "/libfooalias.so.1",
+    make_test_elf64(62, 3, None, ["libmissing.so.9"], None, [], []),
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libmissing.so.9"))
 }
 
 ///|

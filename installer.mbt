@@ -1090,6 +1090,11 @@ priv struct ElfDeps {
   mut rpath_first : Bool
   verneed : Array[(String, String)]
   verdef : Array[String]
+  // The object's own DT_SONAME when it declares one: the loader registers
+  // a loaded shared object under this name, so later dependencies that
+  // request it reuse the object even though the original lookup name
+  // differed.
+  mut soname : String?
 }
 
 ///|
@@ -1197,6 +1202,7 @@ fn parse_elf64_deps(binary : Bytes) -> ElfDeps? {
     rpath_first: false,
     verneed: [],
     verdef: [],
+    soname: None,
   }
   if dyn_offset >= 0 {
     parse_dynamic_deps(binary, dyn_offset, dyn_size, loads, deps)
@@ -1216,6 +1222,7 @@ fn parse_dynamic_deps(
   deps : ElfDeps,
 ) -> Unit {
   let needed_offsets : Array[Int] = []
+  let mut soname_offset = -1L
   let mut strtab_vaddr = -1L
   let mut rpath_offset = -1L
   let mut runpath_offset = -1L
@@ -1237,6 +1244,9 @@ fn parse_dynamic_deps(
       needed_offsets.push(value.to_int())
     } else if tag == 5L {
       strtab_vaddr = value
+    } else if tag == 14L {
+      // DT_SONAME
+      soname_offset = value
     } else if tag == 15L {
       // DT_RPATH
       rpath_offset = value
@@ -1264,6 +1274,12 @@ fn parse_dynamic_deps(
   }
   for offset in needed_offsets {
     deps.needed.push(elf_cstr(binary, strtab + offset))
+  }
+  if soname_offset >= 0L {
+    let soname = elf_cstr(binary, strtab + soname_offset.to_int())
+    if soname != "" {
+      deps.soname = Some(soname)
+    }
   }
   // DT_RUNPATH supersedes DT_RPATH in the loader search order.
   if runpath_offset >= 0L {
@@ -1939,10 +1955,23 @@ async fn check_library_closure(
             match library_deps(found) {
               // Children inherit this object's complete RPATH tier,
               // which already ends with the ancestors' entries.
-              Some(child) =>
+              Some(child) => {
+                // The loader registers a loaded object under its
+                // DT_SONAME too, so a later dependency requesting that
+                // name reuses it — even when the original lookup used a
+                // different filename. The first loaded object wins on a
+                // SONAME collision, so do not overwrite.
+                match child.soname {
+                  Some(soname_alias) =>
+                    if loaded.get(soname_alias) is None {
+                      loaded[soname_alias] = found
+                    }
+                  None => ()
+                }
                 queue.push(
                   ("library \{found}", dirname_of(found), child, rpath_tier),
                 )
+              }
               None =>
                 fail(
                   "\{owner} cannot run on this system: library \{found} is not a parseable ELF64 object. Build it from source instead, or pass --skip-compat-check to install anyway.",
@@ -1956,7 +1985,11 @@ async fn check_library_closure(
       let (provider, version) = requirement
       let provider_path = match resolved.get(provider) {
         Some(found) => Some(found)
-        None => resolve_soname(provider, search_dirs, cache, dirs, host)
+        None =>
+          match loaded.get(provider) {
+            Some(found) => Some(found)
+            None => resolve_soname(provider, search_dirs, cache, dirs, host)
+          }
       }
       match provider_path {
         None =>
@@ -1982,10 +2015,18 @@ async fn check_library_closure(
             if !visited.contains(found) {
               visited[found] = true
               match library_deps(found) {
-                Some(child) =>
+                Some(child) => {
+                  match child.soname {
+                    Some(soname_alias) =>
+                      if loaded.get(soname_alias) is None {
+                        loaded[soname_alias] = found
+                      }
+                    None => ()
+                  }
                   queue.push(
                     ("library \{found}", dirname_of(found), child, rpath_tier),
                   )
+                }
                 None => ()
               }
             }
