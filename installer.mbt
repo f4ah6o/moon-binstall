@@ -1500,13 +1500,31 @@ async fn library_dirs() -> Array[String] {
 }
 
 ///|
+/// The directory names `$LIB`/`${LIB}` can expand to on this host.
+/// glibc substitutes the architecture's library subdirectory —
+/// "lib/x86_64-linux-gnu" on Debian multiarch, "lib64" on Fedora-style
+/// layouts — so every plausible value is tried in order.
+fn lib_token_names(host : Int) -> Array[String] {
+  match host {
+    62 => ["lib/x86_64-linux-gnu", "lib64", "lib"]
+    183 => ["lib/aarch64-linux-gnu", "lib64", "lib"]
+    _ => ["lib"]
+  }
+}
+
+///|
 /// Expand the DT_RUNPATH/DT_RPATH search list into directories to probe.
 /// `$ORIGIN` and the equivalent `${ORIGIN}` resolve against the directory
-/// the binary will be installed into (its final location, not the private
-/// staging directory). Entries still containing other `$` tokens ($LIB,
-/// $PLATFORM) or relative paths are ignored — they resolve against an
-/// unknown context.
-fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
+/// the object will live in (the binary's final install directory, or the
+/// directory of a resolved transitive provider). `$LIB`/`${LIB}` expands
+/// to each `lib_tokens` directory name in turn. Entries still containing
+/// other `$` tokens ($PLATFORM) or relative paths are ignored — they
+/// resolve against an unknown context.
+fn expand_runpath(
+  runpath : String?,
+  origin : String,
+  lib_tokens : Array[String],
+) -> Array[String] {
   let dirs : Array[String] = []
   let value = match runpath {
     Some(text) => text
@@ -1517,20 +1535,58 @@ fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
     if dir == "" {
       continue
     }
-    if dir.contains("$ORIGIN") || dir.contains("${ORIGIN}") {
+    if dir.contains("$") {
       let expanded = dir
         .replace_all(old="${ORIGIN}", new=origin)
         .replace_all(old="$ORIGIN", new=origin)
-      if !expanded.contains("$") {
+      if expanded.contains("${LIB}") || expanded.contains("$LIB") {
+        // One rpath entry becomes several candidate directories, one per
+        // plausible $LIB value, kept in preference order.
+        for token in lib_tokens {
+          let candidate = expanded
+            .replace_all(old="${LIB}", new=token)
+            .replace_all(old="$LIB", new=token)
+          if !candidate.contains("$") && candidate.has_prefix("/") {
+            dirs.push(candidate)
+          }
+        }
+      } else if !expanded.contains("$") && expanded.has_prefix("/") {
         dirs.push(expanded)
       }
-    } else if dir.contains("$") {
-      continue
     } else if dir.has_prefix("/") {
       dirs.push(dir)
     }
   }
   dirs
+}
+
+///|
+/// Merge LD_LIBRARY_PATH and an object's own RUNPATH/RPATH directories in
+/// the loader's order: the environment precedes DT_RUNPATH, but follows
+/// DT_RPATH when the object carries only the legacy tag. Returns a fresh
+/// list — callers iterate it for several sonames.
+fn library_search_dirs(
+  env_dirs : Array[String],
+  runpath_dirs : Array[String],
+  rpath_first : Bool,
+) -> Array[String] {
+  let merged : Array[String] = []
+  if rpath_first {
+    for dir in runpath_dirs {
+      merged.push(dir)
+    }
+    for dir in env_dirs {
+      merged.push(dir)
+    }
+  } else {
+    for dir in env_dirs {
+      merged.push(dir)
+    }
+    for dir in runpath_dirs {
+      merged.push(dir)
+    }
+  }
+  merged
 }
 
 ///|
@@ -1646,12 +1702,35 @@ fn ld_library_dirs(value : String?) -> Array[String] {
 }
 
 ///|
+/// Pick the first candidate library the host can actually load, like
+/// ld.so skipping an incompatible file (wrong e_machine, not an ELF64
+/// ET_DYN) it meets on the search path. When every candidate is regular
+/// but unusable, the first is returned so the caller can report it as an
+/// unusable library rather than as missing.
+async fn pick_usable(paths : Array[String], host : Int) -> String? {
+  let mut fallback : String? = None
+  for path in paths {
+    if !(@fs.exists(path) && @fs.kind(path) is Regular) {
+      continue
+    }
+    if fallback is None {
+      fallback = Some(path)
+    }
+    if elf_file_usable(path, host) {
+      return Some(path)
+    }
+  }
+  fallback
+}
+
+///|
 /// Resolve a DT_NEEDED soname to a host path. `search_dirs` already merges
-/// LD_LIBRARY_PATH and the binary's RUNPATH/RPATH directories in loader
+/// LD_LIBRARY_PATH and the object's RUNPATH/RPATH directories in loader
 /// order; then the ldconfig cache (which can hold several ABI variants of
-/// one soname — the first candidate the host can load wins, like ld.so),
-/// and finally the usual library directories. Only regular files count:
-/// a FIFO or device at a candidate path could block on open.
+/// one soname), and finally the usual library directories. In every
+/// location, an incompatible ELF is skipped just like ld.so skips it, so
+/// a usable sibling in a later directory still wins. Only regular files
+/// count: a FIFO or device at a candidate path could block on open.
 async fn resolve_soname(
   soname : String,
   search_dirs : Array[String],
@@ -1663,41 +1742,59 @@ async fn resolve_soname(
     let usable = @fs.exists(soname) && @fs.kind(soname) is Regular
     return if usable { Some(soname) } else { None }
   }
+  let searched : Array[String] = []
   for dir in search_dirs {
-    let candidate = dir + "/" + soname
-    if @fs.exists(candidate) && @fs.kind(candidate) is Regular {
-      return Some(candidate)
-    }
+    searched.push(dir + "/" + soname)
   }
-  match cache.get(soname) {
-    Some(candidates) => {
-      let mut fallback : String? = None
-      for path in candidates {
-        if !(@fs.exists(path) && @fs.kind(path) is Regular) {
-          continue
-        }
-        if fallback is None {
-          fallback = Some(path)
-        }
-        if elf_file_usable(path, host) {
-          return Some(path)
-        }
-      }
-      // Every cached candidate is unusable for this host: report the
-      // first so the caller can reject it as an unusable library.
-      if fallback is Some(path) {
-        return Some(path)
-      }
-    }
+  match pick_usable(searched, host) {
+    Some(found) => return Some(found)
     None => ()
   }
-  for dir in dirs {
-    let candidate = dir + "/" + soname
-    if @fs.exists(candidate) && @fs.kind(candidate) is Regular {
-      return Some(candidate)
-    }
+  match cache.get(soname) {
+    Some(candidates) =>
+      match pick_usable(candidates, host) {
+        Some(found) => return Some(found)
+        None => ()
+      }
+    None => ()
   }
-  None
+  let defaults : Array[String] = []
+  for dir in dirs {
+    defaults.push(dir + "/" + soname)
+  }
+  pick_usable(defaults, host)
+}
+
+///|
+/// Sonames the kernel itself provides, so no filesystem resolution is
+/// needed: the vDSO family is mapped into every process by the loader.
+fn kernel_object_sonames() -> Array[String] {
+  ["linux-vdso.so.1", "linux-vdso32.so.1", "linux-gate.so.1"]
+}
+
+///|
+/// The directory component of a path ("/a/b/c.so" -> "/a/b").
+fn dirname_of(path : String) -> String {
+  let parts = path.split("/").collect()
+  if parts.length() <= 1 {
+    return "."
+  }
+  let dir = parts[:parts.length() - 1].iter().join("/")
+  if dir == "" {
+    "/"
+  } else {
+    dir
+  }
+}
+
+///|
+/// Parsed runtime dependencies of a resolved provider library, or None
+/// when the file cannot be read as ELF64. The regular-file check precedes
+/// the read so an untrusted soname path can never block on a FIFO.
+async fn library_deps(path : String) -> ElfDeps? {
+  guard @fs.kind(path) is Regular else { return None }
+  let bytes = @fs.read_file(path).binary() catch { _ => return None }
+  parse_elf64_deps(bytes)
 }
 
 ///|
@@ -1717,18 +1814,147 @@ async fn library_defined_versions(path : String) -> Array[String]? {
 }
 
 ///|
+/// Walk the transitive DT_NEEDED closure of the root object's dependencies
+/// breadth-first, resolving each object's own soname list with its own
+/// RUNPATH/RPATH context (`$ORIGIN` is the directory of the object holding
+/// the dependency, so a provider's private $ORIGIN neighbors are honored).
+/// `visited` guards dependency cycles like libA -> libB -> libA. An
+/// object whose needed soname cannot be located, resolves to a file the
+/// host cannot load, or requires a symbol version its provider does not
+/// define aborts the install — exactly the cases where the real loader
+/// would refuse to start the process. `owner` in each queue entry is only
+/// used to make failure messages name the object holding the dependency.
+async fn check_library_closure(
+  name : String,
+  root : ElfDeps,
+  root_dir : String,
+  env_dirs : Array[String],
+  cache : Map[String, Array[String]],
+  dirs : Array[String],
+  host : Int,
+  lib_tokens : Array[String],
+) -> Unit {
+  let visited : Map[String, Bool] = Map([])
+  let queue : Array[(String, String, ElfDeps)] = [
+    ("installed binary \{name}", root_dir, root),
+  ]
+  let mut cursor = 0
+  while cursor < queue.length() {
+    let (owner, objdir, objdeps) = queue[cursor]
+    cursor = cursor + 1
+    let runpath_dirs = expand_runpath(objdeps.runpath, objdir, lib_tokens)
+    let search_dirs = library_search_dirs(
+      env_dirs,
+      runpath_dirs,
+      objdeps.rpath_first,
+    )
+    let resolved : Map[String, String] = Map([])
+    let missing : Array[String] = []
+    let unusable : Array[String] = []
+    for soname in objdeps.needed {
+      // Kernel-supplied objects have no file to check: the loader always
+      // satisfies them (the vDSO is mapped into every process).
+      if kernel_object_sonames().contains(soname) {
+        continue
+      }
+      match resolve_soname(soname, search_dirs, cache, dirs, host) {
+        None => missing.push(soname)
+        Some(found) => {
+          resolved[soname] = found
+          // Existence is not enough: the loader also refuses a provider
+          // that is not a host-architecture ELF shared object.
+          if !elf_file_usable(found, host) {
+            unusable.push(soname)
+          }
+        }
+      }
+    }
+    guard missing.is_empty() else {
+      let list = missing.join(", ")
+      fail(
+        "\{owner} cannot run on this system: unresolved libraries \{list}. Build it from source instead, or pass --skip-compat-check to install anyway.",
+      )
+    }
+    guard unusable.is_empty() else {
+      let list = unusable.join(", ")
+      fail(
+        "\{owner} cannot run on this system: unusable libraries \{list} (not loadable ELF64 shared objects for this architecture). Build it from source instead, or pass --skip-compat-check to install anyway.",
+      )
+    }
+    // Queue each resolved provider so its own DT_NEEDED chain is checked
+    // too — a missing transitive library stops the real loader as well.
+    for soname in objdeps.needed {
+      match resolved.get(soname) {
+        Some(found) =>
+          if !visited.contains(found) {
+            visited[found] = true
+            match library_deps(found) {
+              Some(child) =>
+                queue.push(("library \{found}", dirname_of(found), child))
+              None =>
+                fail(
+                  "\{owner} cannot run on this system: library \{found} is not a parseable ELF64 object. Build it from source instead, or pass --skip-compat-check to install anyway.",
+                )
+            }
+          }
+        None => ()
+      }
+    }
+    for requirement in objdeps.verneed {
+      let (provider, version) = requirement
+      let provider_path = match resolved.get(provider) {
+        Some(found) => Some(found)
+        None => resolve_soname(provider, search_dirs, cache, dirs, host)
+      }
+      match provider_path {
+        None =>
+          fail(
+            "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, which cannot be located. Build it from source instead, or pass --skip-compat-check to install anyway.",
+          )
+        Some(found) =>
+          if !elf_file_usable(found, host) {
+            fail(
+              "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, but \{found} is not a usable ELF shared object. Build it from source instead, or pass --skip-compat-check to install anyway.",
+            )
+          } else {
+            match library_defined_versions(found) {
+              Some(defined) =>
+                if !defined.contains(version) {
+                  fail(
+                    "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{found} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
+                  )
+                }
+              // An unparseable provider is left to the runtime loader.
+              None => ()
+            }
+            if !visited.contains(found) {
+              visited[found] = true
+              match library_deps(found) {
+                Some(child) =>
+                  queue.push(("library \{found}", dirname_of(found), child))
+                None => ()
+              }
+            }
+          }
+      }
+    }
+  }
+}
+
+///|
 /// Reject a staged binary that cannot run on this host — inspected without
 /// executing the downloaded file or running `ldd` on it, so hostile or
 /// corrupted artifacts stay inert. A host-architecture ELF64 is rejected
 /// when it is not an executable (e.g. a relocatable object), its program
 /// headers are malformed, its PT_INTERP loader is absent or missing, a
 /// DT_NEEDED library cannot be resolved through LD_LIBRARY_PATH and its
-/// RUNPATH/RPATH, the ldconfig cache and the usual library directories, or
-/// a required symbol
-/// version (GLIBC_*, GLIBCXX_*, ...) is not defined by the resolved
-/// provider library. Other formats and foreign architectures are skipped —
-/// they may be fetched on purpose for a different machine. `install_dir`
-/// is the binary's final destination directory, used to expand `$ORIGIN`.
+/// RUNPATH/RPATH, the ldconfig cache and the usual library directories
+/// (checked transitively, since a provider's own missing dependency
+/// stops the loader too), or a required symbol version (GLIBC_*,
+/// GLIBCXX_*, ...) is not defined by the resolved provider library.
+/// Other formats and foreign architectures are skipped — they may be
+/// fetched on purpose for a different machine. `install_dir` is the
+/// binary's final destination directory, used to expand `$ORIGIN`.
 async fn verify_binary_compat(
   path : String,
   binary : Bytes,
@@ -1789,81 +2015,19 @@ async fn verify_binary_compat(
         )
       }
   }
-  let runpath_dirs = expand_runpath(deps.runpath, install_dir)
   let env_dirs = ld_library_dirs(@env.get_env_var("LD_LIBRARY_PATH"))
-  // Loader order: LD_LIBRARY_PATH precedes DT_RUNPATH, but a binary
-  // carrying only DT_RPATH has those directories searched first.
-  let search_dirs = if deps.rpath_first {
-    for dir in env_dirs {
-      runpath_dirs.push(dir)
-    }
-    runpath_dirs
-  } else {
-    for dir in runpath_dirs {
-      env_dirs.push(dir)
-    }
-    env_dirs
-  }
   let cache = ldconfig_map()
   let dirs = library_dirs()
-  let resolved : Map[String, String] = Map([])
-  let missing : Array[String] = []
-  let unusable : Array[String] = []
-  for soname in deps.needed {
-    match resolve_soname(soname, search_dirs, cache, dirs, host) {
-      None => missing.push(soname)
-      Some(found) => {
-        resolved[soname] = found
-        // Existence is not enough: the loader also refuses a provider that
-        // is not a host-architecture ELF shared object.
-        if !elf_file_usable(found, host) {
-          unusable.push(soname)
-        }
-      }
-    }
-  }
-  let missing_list = missing.join(", ")
-  guard missing.is_empty() else {
-    fail(
-      "installed binary \{name} cannot run on this system: unresolved libraries \{missing_list}. Build it from source instead, or pass --skip-compat-check to install anyway.",
-    )
-  }
-  let unusable_list = unusable.join(", ")
-  guard unusable.is_empty() else {
-    fail(
-      "installed binary \{name} cannot run on this system: unusable libraries \{unusable_list} (not loadable ELF64 shared objects for this architecture). Build it from source instead, or pass --skip-compat-check to install anyway.",
-    )
-  }
-  for requirement in deps.verneed {
-    let (provider, version) = requirement
-    let provider_path = match resolved.get(provider) {
-      Some(found) => Some(found)
-      None => resolve_soname(provider, search_dirs, cache, dirs, host)
-    }
-    match provider_path {
-      None =>
-        fail(
-          "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which cannot be located. Build it from source instead, or pass --skip-compat-check to install anyway.",
-        )
-      Some(provider_path) =>
-        if !elf_file_usable(provider_path, host) {
-          fail(
-            "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, but \{provider_path} is not a usable ELF shared object. Build it from source instead, or pass --skip-compat-check to install anyway.",
-          )
-        } else {
-          match library_defined_versions(provider_path) {
-            Some(defined) =>
-              if !defined.contains(version) {
-                fail(
-                  "installed binary \{name} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{provider_path} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
-                )
-              }
-            // An unparseable provider is left to the runtime loader.
-            None => ()
-          }
-        }
-    }
-  }
+  check_library_closure(
+    name.to_owned(),
+    deps,
+    install_dir,
+    env_dirs,
+    cache,
+    dirs,
+    host,
+    lib_token_names(host),
+  )
 }
 
 ///|

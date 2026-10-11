@@ -1790,18 +1790,37 @@ test "parse_elf64_deps extracts interp, needed, runpath and versions" {
 
 ///|
 test "expand_runpath expands $ORIGIN and drops unexpandable entries" {
-  assert_eq(expand_runpath(None, "/opt/bin"), [])
+  let tokens = lib_token_names(62)
+  assert_eq(expand_runpath(None, "/opt/bin", tokens), [])
   assert_eq(
     expand_runpath(
       Some("$ORIGIN:$ORIGIN/lib:/abs/lib:$LIB:rel/lib"),
       "/opt/bin",
+      tokens,
     ),
     ["/opt/bin", "/opt/bin/lib", "/abs/lib"],
   )
   // The braced ${ORIGIN} form is equivalent for the glibc loader.
-  assert_eq(expand_runpath(Some("${ORIGIN}:${ORIGIN}/lib"), "/opt/bin"), [
-    "/opt/bin", "/opt/bin/lib",
+  assert_eq(
+    expand_runpath(Some("${ORIGIN}:${ORIGIN}/lib"), "/opt/bin", tokens),
+    ["/opt/bin", "/opt/bin/lib"],
+  )
+}
+
+///|
+test "expand_runpath expands $LIB to host library directories" {
+  let tokens = lib_token_names(62)
+  // $LIB alone is relative and stays unusable, but under an absolute
+  // anchor each plausible host value is produced in preference order.
+  assert_eq(expand_runpath(Some("$ORIGIN/$LIB"), "/opt/bin", tokens), [
+    "/opt/bin/lib/x86_64-linux-gnu", "/opt/bin/lib64", "/opt/bin/lib",
   ])
+  // The braced ${LIB} form expands the same way.
+  assert_eq(expand_runpath(Some("${ORIGIN}/${LIB}/x"), "/opt/bin", tokens), [
+    "/opt/bin/lib/x86_64-linux-gnu/x", "/opt/bin/lib64/x", "/opt/bin/lib/x",
+  ])
+  // Tokens we do not emulate ($PLATFORM) are still dropped.
+  assert_eq(expand_runpath(Some("$ORIGIN/$PLATFORM"), "/opt/bin", tokens), [])
 }
 
 ///|
@@ -2152,6 +2171,103 @@ async test "verify_binary_compat honors LD_LIBRARY_PATH on linux" {
     error => error.to_string()
   }
   assert_true(error.contains("libenvdep.so"))
+}
+
+///|
+async test "resolve_soname skips an incompatible search-dir candidate" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let wrong_dir = @fs.tmpdir(prefix="moon-binstall-abi-wrong")
+  let good_dir = @fs.tmpdir(prefix="moon-binstall-abi-good")
+  defer (@fs.rmdir(wrong_dir, recursive=true) catch { _ => () })
+  defer (@fs.rmdir(good_dir, recursive=true) catch { _ => () })
+  // The same soname exists in two search directories; glibc skips the
+  // AArch64 file and loads the x86_64 one regardless of directory order.
+  let wrong = wrong_dir + "/libdup.so.1"
+  let good = good_dir + "/libdup.so.1"
+  @fs.write_file(wrong, make_test_elf64(183, 3, None, [], None, [], []))
+  @fs.write_file(good, make_test_elf64(62, 3, None, [], None, [], []))
+  let found = resolve_soname(
+    "libdup.so.1",
+    [wrong_dir, good_dir],
+    Map([]),
+    [],
+    62,
+  )
+  assert_eq(found, Some(good))
+  let found2 = resolve_soname(
+    "libdup.so.1",
+    [good_dir, wrong_dir],
+    Map([]),
+    [],
+    62,
+  )
+  assert_eq(found2, Some(good))
+  // When every candidate is unusable the first is still reported so the
+  // caller can reject it as an unusable library.
+  let found3 = resolve_soname("libdup.so.1", [wrong_dir], Map([]), [], 62)
+  assert_eq(found3, Some(wrong))
+}
+
+///|
+async test "verify_binary_compat honors a $LIB RUNPATH on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-libtoken")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // glibc expands $LIB to lib/<triplet> on Debian multiarch: a private
+  // library placed there satisfies RUNPATH="$ORIGIN/$LIB".
+  let lib_dir = install_dir + "/lib/x86_64-linux-gnu"
+  @fs.mkdir(lib_dir, recursive=true)
+  @fs.write_file(
+    lib_dir + "/libtokdep.so",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libtokdep.so"],
+    Some("$ORIGIN/$LIB"),
+    [],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+}
+
+///|
+async test "verify_binary_compat checks transitive dependencies on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-transitive")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // libfoo.so.1 resolves beside the binary but itself needs libbar.so.1.
+  @fs.write_file(
+    install_dir + "/libfoo.so.1",
+    make_test_elf64(62, 3, None, ["libbar.so.1"], Some("$ORIGIN"), [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libfoo.so.1"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  // libbar missing: the loader would fail at startup, so must we.
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libbar.so.1"))
+  // With libbar staged beside libfoo (its own $ORIGIN), the chain holds.
+  @fs.write_file(
+    install_dir + "/libbar.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
 }
 
 ///|
