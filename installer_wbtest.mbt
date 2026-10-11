@@ -1770,19 +1770,31 @@ async test "verify_binary_compat rejects non-executable and malformed ELF" {
 }
 
 ///|
+/// Stage a throwaway file standing in for the PT_INTERP loader — the
+/// compat check only requires the interpreter path to exist.
+async fn staged_loader(dir : String) -> String {
+  let path = dir + "/ld-binstall-test.so.2"
+  @fs.write_file(path, "loader\n")
+  path
+}
+
+///|
 async test "verify_binary_compat rejects unresolved libraries on linux" {
   guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-missing")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
   let elf = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
+    Some(loader),
     ["libdefinitelymissing99.so.1"],
     None,
     [],
     [],
   )
   let error = try {
-    verify_binary_compat("/tmp/staged-dsh", elf, false, "/tmp")
+    verify_binary_compat("/tmp/staged-dsh", elf, false, install_dir)
     ""
   } catch {
     error => error.to_string()
@@ -1797,10 +1809,11 @@ async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
   let install_dir = @fs.tmpdir(prefix="moon-binstall-rpath")
   defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
   @fs.write_file(install_dir + "/libfake99.so", "not an elf but exists\n")
+  let loader = staged_loader(install_dir)
   let elf = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
+    Some(loader),
     ["libfake99.so"],
     Some("$ORIGIN"),
     [],
@@ -1811,7 +1824,7 @@ async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
   let no_rpath = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
+    Some(loader),
     ["libfake99.so"],
     None,
     [],
@@ -1829,34 +1842,41 @@ async test "verify_binary_compat honors RUNPATH $ORIGIN on linux" {
 ///|
 async test "verify_binary_compat checks required symbol versions on linux" {
   guard require_platform() == "linux-x86_64" else { return }
-  // GLIBC_99.0 is not defined by the host libc: rejected via its verdef.
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-versions")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // A provider library that defines only GLIBC_2.2.5.
+  let provider = make_test_elf64(62, 3, None, [], None, [], ["GLIBC_2.2.5"])
+  @fs.write_file(install_dir + "/libfakec.so.6", provider)
+  // GLIBC_99.0 is not defined by the provider: rejected via its verdef.
   let elf = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
-    ["libc.so.6"],
-    None,
-    [("libc.so.6", ["GLIBC_99.0"])],
+    Some(loader),
+    ["libfakec.so.6"],
+    Some("$ORIGIN"),
+    [("libfakec.so.6", ["GLIBC_99.0"])],
     [],
   )
   let error = try {
-    verify_binary_compat("/tmp/staged-dsh", elf, false, "/tmp")
+    verify_binary_compat("/tmp/staged-dsh", elf, false, install_dir)
     ""
   } catch {
     error => error.to_string()
   }
   assert_true(error.contains("GLIBC_99.0"))
-  // GLIBC_2.2.5 is defined by every modern glibc: installs fine.
+  assert_true(error.contains("does not provide"))
+  // A requirement the provider does define installs fine.
   let healthy = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
-    ["libc.so.6"],
-    None,
-    [("libc.so.6", ["GLIBC_2.2.5"])],
+    Some(loader),
+    ["libfakec.so.6"],
+    Some("$ORIGIN"),
+    [("libfakec.so.6", ["GLIBC_2.2.5"])],
     [],
   )
-  verify_binary_compat("/tmp/staged-cli", healthy, false, "/tmp")
+  verify_binary_compat("/tmp/staged-cli", healthy, false, install_dir)
 }
 
 ///|
@@ -1864,6 +1884,7 @@ async test "verify_binary_compat checks non-GLIBC versions on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let install_dir = @fs.tmpdir(prefix="moon-binstall-glibcxx")
   defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
   // A provider library that defines GLIBCXX_3.4.21 but not GLIBCXX_9.9.99.
   let provider = make_test_elf64(
     62, 3, None, [], None, [], ["GLIBCXX_3.4.21"],
@@ -1872,7 +1893,7 @@ async test "verify_binary_compat checks non-GLIBC versions on linux" {
   let elf = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
+    Some(loader),
     ["libfakexx.so.6"],
     Some("$ORIGIN"),
     [("libfakexx.so.6", ["GLIBCXX_9.9.99"])],
@@ -1889,7 +1910,7 @@ async test "verify_binary_compat checks non-GLIBC versions on linux" {
   let ok = make_test_elf64(
     62,
     2,
-    Some("/lib64/ld-linux-x86-64.so.2"),
+    Some(loader),
     ["libfakexx.so.6"],
     Some("$ORIGIN"),
     [("libfakexx.so.6", ["GLIBCXX_3.4.21"])],
@@ -2008,3 +2029,4 @@ async test "declared glibc-min does not apply to a cross-architecture fetch" {
   install_many_using(options, Fixture(transport))
   assert_eq(@fs.read_file(root + "/installed/cli").text(), "arm64 payload\n")
 }
+
