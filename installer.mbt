@@ -1085,6 +1085,9 @@ priv struct ElfDeps {
   interp : String?
   needed : Array[String]
   mut runpath : String?
+  // True when `runpath` came from DT_RPATH because DT_RUNPATH is absent —
+  // legacy RPATH is searched before LD_LIBRARY_PATH, RUNPATH after it.
+  mut rpath_first : Bool
   verneed : Array[(String, String)]
   verdef : Array[String]
 }
@@ -1191,6 +1194,7 @@ fn parse_elf64_deps(binary : Bytes) -> ElfDeps? {
     interp,
     needed: [],
     runpath: None,
+    rpath_first: false,
     verneed: [],
     verdef: [],
   }
@@ -1266,6 +1270,7 @@ fn parse_dynamic_deps(
     deps.runpath = Some(elf_cstr(binary, strtab + runpath_offset.to_int()))
   } else if rpath_offset >= 0L {
     deps.runpath = Some(elf_cstr(binary, strtab + rpath_offset.to_int()))
+    deps.rpath_first = true
   }
   if verneed_vaddr >= 0L {
     match elf_vaddr_offset(loads, verneed_vaddr) {
@@ -1443,10 +1448,12 @@ async fn host_libc() -> String? {
 }
 
 ///|
-/// Soname → path map of the host loader cache (`ldconfig -p`,
-/// non-executing — it only reads /etc/ld.so.cache).
-async fn ldconfig_map() -> Map[String, String] {
-  let map : Map[String, String] = Map([])
+/// Soname → candidate paths of the host loader cache (`ldconfig -p`,
+/// non-executing — it only reads /etc/ld.so.cache). One soname can map to
+/// several ABI variants on multilib hosts (e.g. x86-64 and i386 libc.so.6),
+/// so every candidate is kept in listed order for ABI-aware selection.
+async fn ldconfig_map() -> Map[String, Array[String]] {
+  let map : Map[String, Array[String]] = Map([])
   let output = @shell.Cmd("ldconfig", ["-p"]).output(
     timeout_ms=15000,
     max_output_bytes=4194304,
@@ -1462,7 +1469,10 @@ async fn ldconfig_map() -> Map[String, String] {
     let soname = parts[0].trim().split(" ").iter().next().unwrap_or("")
     let path = parts[1].trim().to_owned()
     if soname != "" && path != "" {
-      map[soname.to_owned()] = path
+      match map.get(soname.to_owned()) {
+        Some(list) => if !list.contains(path) { list.push(path) }
+        None => map[soname.to_owned()] = [path]
+      }
     }
   }
   map
@@ -1524,78 +1534,166 @@ fn expand_runpath(runpath : String?, origin : String) -> Array[String] {
 }
 
 ///|
-/// Whether `bytes` starts with a usable little-endian ELF64 shared-object
-/// header built for e_machine `host` — the shape the kernel's PT_INTERP
-/// handling and the dynamic loader can actually map. Only the first 20
-/// bytes are needed.
-fn elf64_usable(binary : Bytes, host : Int) -> Bool {
-  binary.length() >= 20 &&
-  binary[0].to_int() == 0x7f &&
-  binary[1] == b'E' &&
-  binary[2] == b'L' &&
-  binary[3] == b'F' &&
-  binary[4].to_int() == 2 &&
-  binary[5].to_int() == 1 &&
-  // ET_DYN: both ld.so loaders and shared libraries.
-  elf_u16le(binary, 16) == 3 &&
-  elf_u16le(binary, 18) == host
-}
-
-///|
-/// Read the first `len` bytes of `path`, or None when it cannot be opened
-/// or read. Keeps header inspection cheap on large provider libraries.
-async fn file_head(path : String, len : Int) -> Bytes? {
-  let file = @fs.open(path, mode=ReadOnly) catch { _ => return None }
-  let buf : FixedArray[Byte] = FixedArray::make(len, 0)
-  let n = file.read(buf, max_len=len) catch {
-    _ => {
-      file.close()
-      return None
+/// Whether `head` — at least `phoff + phnum * phentsize` bytes of a file
+/// of `file_size` bytes — describes a usable little-endian ELF64 shared
+/// object for e_machine `host`: a complete ELF header and program-header
+/// table plus at least one PT_LOAD segment lying fully inside the file.
+/// A truncated or wrong-architecture ELF, a 32-bit ELF, a non-ELF file and
+/// an ET_REL/ET_EXEC object all fail the real loader too, so they fail here.
+fn elf64_usable(head : Bytes, file_size : Int64, host : Int) -> Bool {
+  if head.length() < 64 {
+    return false
+  }
+  if head[0].to_int() != 0x7f ||
+    head[1] != b'E' ||
+    head[2] != b'L' ||
+    head[3] != b'F' ||
+    head[4].to_int() != 2 ||
+    head[5].to_int() != 1 ||
+    // ET_DYN: both ld.so loaders and shared libraries.
+    elf_u16le(head, 16) != 3 ||
+    elf_u16le(head, 18) != host ||
+    elf_u16le(head, 52) != 64 {
+    return false
+  }
+  let phoff = elf_u64le(head, 32)
+  let phentsize = elf_u16le(head, 54)
+  let phnum = elf_u16le(head, 56)
+  let table_end = phoff + phnum.to_int64() * phentsize.to_int64()
+  if phoff <= 0L ||
+    phnum < 1 ||
+    phnum >= 4096 ||
+    phentsize < 56 ||
+    table_end > head.length().to_int64() ||
+    table_end > file_size {
+    return false
+  }
+  let mut loads = 0
+  for i = 0; i < phnum; i = i + 1 {
+    let p = phoff.to_int() + i * phentsize
+    if elf_u32le(head, p) == 1 {
+      loads = loads + 1
+      let offset = elf_u64le(head, p + 8)
+      let filesz = elf_u64le(head, p + 32)
+      if filesz <= 0L || offset < 0L || offset + filesz > file_size {
+        return false
+      }
     }
   }
-  file.close()
-  Some(Bytes::from_array(buf.iter().take(n).collect()))
+  loads > 0
 }
 
 ///|
 /// Whether the file at `path` is a usable host-architecture ELF64 shared
 /// object — required of both the PT_INTERP loader and resolved DT_NEEDED
-/// libraries. A wrong-architecture ELF, a 32-bit ELF, a non-ELF file, an
-/// unreadable path and an ET_REL/ET_EXEC object all fail the real loader
-/// too, so they fail here.
+/// libraries. The complete program-header table and the PT_LOAD ranges are
+/// validated against the open file's size (fstat, so symlinks to a loader
+/// report their target's size), so a truncated loader does not slip
+/// through on its first bytes alone. The regular-file check happens before
+/// open: a FIFO or device named by an untrusted DT_NEEDED or PT_INTERP
+/// string could block a read-only open.
 async fn elf_file_usable(path : String, host : Int) -> Bool {
-  match file_head(path, 20) {
-    Some(head) => elf64_usable(head, host)
-    None => false
+  guard @fs.kind(path) is Regular else { return false }
+  let file = @fs.open(path, mode=ReadOnly) catch { _ => return false }
+  let size = file.size() catch {
+    _ => {
+      file.close()
+      return false
+    }
   }
+  let header = file.read_exactly_at(64, position=0L) catch {
+    _ => {
+      file.close()
+      return false
+    }
+  }
+  // Size the full header+phdr read from the declared table bounds.
+  let phoff = elf_u64le(header, 32)
+  let phentsize = elf_u16le(header, 54)
+  let phnum = elf_u16le(header, 56)
+  let needed = phoff + phnum.to_int64() * phentsize.to_int64()
+  if needed <= 0L || needed > size || needed > 1048576L {
+    file.close()
+    return false
+  }
+  let head = file.read_exactly_at(needed.to_int(), position=0L) catch {
+    _ => {
+      file.close()
+      return false
+    }
+  }
+  file.close()
+  elf64_usable(head, size, host)
 }
 
 ///|
-/// Resolve a DT_NEEDED soname to a host path, honoring the ELF's own
-/// RUNPATH/RPATH directories first, then the ldconfig cache, then the
-/// usual library directories — all without running anything.
+/// Directories from a colon-separated LD_LIBRARY_PATH value. Empty entries
+/// and relative paths are skipped: they resolve against the eventual
+/// runtime working directory, which the installer cannot know.
+fn ld_library_dirs(value : String?) -> Array[String] {
+  let dirs : Array[String] = []
+  let text = match value {
+    Some(env) => env
+    None => return dirs
+  }
+  for entry in text.split(":") {
+    let dir = entry.trim().to_owned()
+    if dir != "" && dir.has_prefix("/") {
+      dirs.push(dir)
+    }
+  }
+  dirs
+}
+
+///|
+/// Resolve a DT_NEEDED soname to a host path. `search_dirs` already merges
+/// LD_LIBRARY_PATH and the binary's RUNPATH/RPATH directories in loader
+/// order; then the ldconfig cache (which can hold several ABI variants of
+/// one soname — the first candidate the host can load wins, like ld.so),
+/// and finally the usual library directories. Only regular files count:
+/// a FIFO or device at a candidate path could block on open.
 async fn resolve_soname(
   soname : String,
-  rpath_dirs : Array[String],
-  cache : Map[String, String],
+  search_dirs : Array[String],
+  cache : Map[String, Array[String]],
   dirs : Array[String],
+  host : Int,
 ) -> String? {
   if soname.contains("/") {
-    return if @fs.exists(soname) { Some(soname) } else { None }
+    let usable = @fs.exists(soname) && @fs.kind(soname) is Regular
+    return if usable { Some(soname) } else { None }
   }
-  for dir in rpath_dirs {
+  for dir in search_dirs {
     let candidate = dir + "/" + soname
-    if @fs.exists(candidate) {
+    if @fs.exists(candidate) && @fs.kind(candidate) is Regular {
       return Some(candidate)
     }
   }
   match cache.get(soname) {
-    Some(path) => return Some(path)
+    Some(candidates) => {
+      let mut fallback : String? = None
+      for path in candidates {
+        if !(@fs.exists(path) && @fs.kind(path) is Regular) {
+          continue
+        }
+        if fallback is None {
+          fallback = Some(path)
+        }
+        if elf_file_usable(path, host) {
+          return Some(path)
+        }
+      }
+      // Every cached candidate is unusable for this host: report the
+      // first so the caller can reject it as an unusable library.
+      if fallback is Some(path) {
+        return Some(path)
+      }
+    }
     None => ()
   }
   for dir in dirs {
     let candidate = dir + "/" + soname
-    if @fs.exists(candidate) {
+    if @fs.exists(candidate) && @fs.kind(candidate) is Regular {
       return Some(candidate)
     }
   }
@@ -1607,6 +1705,9 @@ async fn resolve_soname(
 /// when the file cannot be read or parsed as ELF64. An empty result means
 /// the library parses but defines no versions (for example a musl libc).
 async fn library_defined_versions(path : String) -> Array[String]? {
+  // An untrusted DT_NEEDED string can name a FIFO or device: refuse to
+  // open anything but a regular file.
+  guard @fs.kind(path) is Regular else { return None }
   let bytes = @fs.read_file(path).binary() catch { _ => return None }
   let deps = match parse_elf64_deps(bytes) {
     Some(value) => value
@@ -1621,8 +1722,9 @@ async fn library_defined_versions(path : String) -> Array[String]? {
 /// corrupted artifacts stay inert. A host-architecture ELF64 is rejected
 /// when it is not an executable (e.g. a relocatable object), its program
 /// headers are malformed, its PT_INTERP loader is absent or missing, a
-/// DT_NEEDED library cannot be resolved through its RUNPATH/RPATH, the
-/// ldconfig cache and the usual library directories, or a required symbol
+/// DT_NEEDED library cannot be resolved through LD_LIBRARY_PATH and its
+/// RUNPATH/RPATH, the ldconfig cache and the usual library directories, or
+/// a required symbol
 /// version (GLIBC_*, GLIBCXX_*, ...) is not defined by the resolved
 /// provider library. Other formats and foreign architectures are skipped —
 /// they may be fetched on purpose for a different machine. `install_dir`
@@ -1687,14 +1789,28 @@ async fn verify_binary_compat(
         )
       }
   }
-  let rpath_dirs = expand_runpath(deps.runpath, install_dir)
+  let runpath_dirs = expand_runpath(deps.runpath, install_dir)
+  let env_dirs = ld_library_dirs(@env.get_env_var("LD_LIBRARY_PATH"))
+  // Loader order: LD_LIBRARY_PATH precedes DT_RUNPATH, but a binary
+  // carrying only DT_RPATH has those directories searched first.
+  let search_dirs = if deps.rpath_first {
+    for dir in env_dirs {
+      runpath_dirs.push(dir)
+    }
+    runpath_dirs
+  } else {
+    for dir in runpath_dirs {
+      env_dirs.push(dir)
+    }
+    env_dirs
+  }
   let cache = ldconfig_map()
   let dirs = library_dirs()
   let resolved : Map[String, String] = Map([])
   let missing : Array[String] = []
   let unusable : Array[String] = []
   for soname in deps.needed {
-    match resolve_soname(soname, rpath_dirs, cache, dirs) {
+    match resolve_soname(soname, search_dirs, cache, dirs, host) {
       None => missing.push(soname)
       Some(found) => {
         resolved[soname] = found
@@ -1722,7 +1838,7 @@ async fn verify_binary_compat(
     let (provider, version) = requirement
     let provider_path = match resolved.get(provider) {
       Some(found) => Some(found)
-      None => resolve_soname(provider, rpath_dirs, cache, dirs)
+      None => resolve_soname(provider, search_dirs, cache, dirs, host)
     }
     match provider_path {
       None =>

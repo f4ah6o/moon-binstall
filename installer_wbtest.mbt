@@ -2026,6 +2026,28 @@ async test "verify_binary_compat rejects an unusable ELF interpreter" {
     error => error.to_string()
   }
   assert_true(error3.contains("ELF interpreter"))
+  // Case 4: a truncated ELF — only the first bytes of a real-looking
+  // loader — is not loadable even with the executable bit set.
+  let short_loader = install_dir + "/ld-short.so.2"
+  let whole = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(short_loader, whole[:20].to_owned())
+  @fs.chmod(short_loader, 0o755)
+  let elf4 = make_test_elf64(
+    62,
+    2,
+    Some(short_loader),
+    ["libfake99.so"],
+    Some("$ORIGIN"),
+    [],
+    [],
+  )
+  let error4 = try {
+    verify_binary_compat("/tmp/staged-app", elf4, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error4.contains("ELF interpreter"))
 }
 
 ///|
@@ -2063,6 +2085,82 @@ async test "verify_binary_compat rejects a wrong-architecture provider" {
     error => error.to_string()
   }
   assert_true(error2.contains("unusable libraries"))
+}
+
+///|
+async test "resolve_soname prefers a usable ldconfig candidate" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let dir = @fs.tmpdir(prefix="moon-binstall-cache")
+  defer (@fs.rmdir(dir, recursive=true) catch { _ => () })
+  // The cache lists both an i386 and an x86_64 provider for one soname —
+  // the loader picks the ABI-compatible entry regardless of order.
+  let i386 = dir + "/libc32.so"
+  let x64 = dir + "/libc64.so"
+  @fs.write_file(i386, make_test_elf64(3, 3, None, [], None, [], []))
+  @fs.write_file(x64, make_test_elf64(62, 3, None, [], None, [], []))
+  let cache : Map[String, Array[String]] = Map([])
+  cache["libdup.so.1"] = [i386, x64]
+  let found = resolve_soname("libdup.so.1", [], cache, [], 62)
+  assert_eq(found, Some(x64))
+  cache["libdup.so.1"] = [x64, i386]
+  let found2 = resolve_soname("libdup.so.1", [], cache, [], 62)
+  assert_eq(found2, Some(x64))
+  // With only a wrong-architecture candidate the resolution still reports
+  // a path so the caller can reject it as unusable.
+  cache["libdup.so.1"] = [i386]
+  let found3 = resolve_soname("libdup.so.1", [], cache, [], 62)
+  assert_eq(found3, Some(i386))
+}
+
+///|
+async test "resolve_soname refuses a non-regular DT_NEEDED path" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let dir = @fs.tmpdir(prefix="moon-binstall-fifo")
+  defer (@fs.rmdir(dir, recursive=true) catch { _ => () })
+  let fifo = dir + "/libfifo.so"
+  let status = @process.run("mkfifo", [fifo])
+  guard status == 0 else { return }
+  // An absolute-path DT_NEEDED naming a FIFO must not be opened.
+  let found = resolve_soname(fifo, [], Map([]), [], 62)
+  assert_true(found is None)
+  // ...nor picked up from a search directory.
+  let found2 = resolve_soname("libfifo.so", [dir], Map([]), [], 62)
+  assert_true(found2 is None)
+}
+
+///|
+async test "verify_binary_compat honors LD_LIBRARY_PATH on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-ldlib")
+  let lib_dir = @fs.tmpdir(prefix="moon-binstall-ldlibdep")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  defer (@fs.rmdir(lib_dir, recursive=true) catch { _ => () })
+  defer @env.unset_env_var("LD_LIBRARY_PATH")
+  let loader = staged_loader(install_dir)
+  let lib = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(lib_dir + "/libenvdep.so", lib)
+  // No RUNPATH: only the inherited LD_LIBRARY_PATH makes this runnable.
+  @env.set_env_var("LD_LIBRARY_PATH", lib_dir)
+  let elf = make_test_elf64(62, 2, Some(loader), ["libenvdep.so"], None, [], [])
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // The dependency is genuinely missing once LD_LIBRARY_PATH is empty.
+  @env.unset_env_var("LD_LIBRARY_PATH")
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("libenvdep.so"))
+}
+
+///|
+test "ld_library_dirs keeps absolute entries only" {
+  assert_eq(ld_library_dirs(Some("/a:/b::rel/lib:$ORIGIN:/c ")), [
+    "/a", "/b", "/c",
+  ])
+  assert_eq(ld_library_dirs(None), [])
+  assert_eq(ld_library_dirs(Some("")), [])
 }
 
 ///|
@@ -2252,4 +2350,25 @@ async test "declared glibc-min does not apply to a cross-architecture fetch" {
   ])
   install_many_using(options, Fixture(transport))
   assert_eq(@fs.read_file(root + "/installed/cli").text(), "arm64 payload\n")
+}
+
+///|
+async test "elf_file_usable accepts a full ELF and a symlink to it" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let dir = @fs.tmpdir(prefix="moon-binstall-usable")
+  defer (@fs.rmdir(dir, recursive=true) catch { _ => () })
+  let loader = dir + "/ld-real.so.2"
+  @fs.write_file(loader, make_test_elf64(62, 3, None, [], None, [], []))
+  assert_true(elf_file_usable(loader, 62))
+  // Distros link /lib64/ld-linux through a symlink: the target's type,
+  // permissions and size must be inspected, never the link's lstat size.
+  let link = dir + "/ld-link.so.2"
+  @fs.symlink(link, target=loader)
+  assert_true(@fs.kind(link) is Regular)
+  assert_true(elf_file_usable(link, 62))
+  // A truncated prefix of the same file is still refused.
+  let short = dir + "/ld-short.so.2"
+  let whole = make_test_elf64(62, 3, None, [], None, [], [])
+  @fs.write_file(short, whole[:20].to_owned())
+  assert_true(!elf_file_usable(short, 62))
 }
