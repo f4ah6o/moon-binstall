@@ -465,15 +465,31 @@ async fn self_update_bin_dir(plan : ResolvedInstallPlan) -> String {
 }
 
 ///|
-/// Parse the `%{json}` write-out curl prints on stderr: the last line that
-/// starts with '{'. Returns None when no report is present (e.g. curl too
-/// old for `%{json}` or the write-out never ran).
+/// The write-out label marking the `%{json}` transfer report on stderr.
+/// Both `%{json}` and `%{header_json}` emit `{`-objects, so each payload
+/// carries an explicit prefix instead of positional parsing.
+fn report_prefix() -> String {
+  "REPORT:"
+}
+
+///|
+/// The write-out label marking a `%{header_json}` response object.
+fn headers_prefix() -> String {
+  "HEADERS:"
+}
+
+///|
+/// Parse the `REPORT:%{json}` write-out line curl prints on stderr.
+/// Returns None when no report is present (e.g. curl too old for `%{json}`
+/// or the write-out never ran).
 fn curl_report(stderr_text : String) -> Json? {
   let mut json_line : String? = None
   for line in stderr_text.split("\n") {
     let trimmed = line.trim().to_owned()
-    if trimmed.has_prefix("{") {
-      json_line = Some(trimmed)
+    if trimmed.has_prefix(report_prefix()) {
+      json_line = Some(
+        trimmed[report_prefix().length():].trim().to_owned(),
+      )
     }
   }
   match json_line {
@@ -483,24 +499,25 @@ fn curl_report(stderr_text : String) -> Json? {
 }
 
 ///|
-/// Parse the `%{header_json}` write-out curl prints on stderr after the
-/// `%{json}` report: the last line that starts with '['. `%{json}` itself
-/// never carries response headers, and `%{header_json}` needs curl >= 7.84
-/// — older curls print an "unknown variable" notice instead, which this
-/// returns None for (rate-limit classification then degrades to a plain
-/// HTTP status, never a false claim).
-fn curl_headers_json(stderr_text : String) -> Json? {
-  let mut json_line : String? = None
+/// Parse every `HEADERS:%{header_json}` object on stderr — one per
+/// response when redirects were followed. `%{json}` never carries
+/// response headers and `%{header_json}` needs curl >= 7.84; older curls
+/// print "unknown variable" after the label, which fails JSON parsing
+/// and simply yields no entry (a bare 403 is then never called a rate
+/// limit, never a false claim).
+fn curl_headers(stderr_text : String) -> Array[Json] {
+  let headers : Array[Json] = []
   for line in stderr_text.split("\n") {
     let trimmed = line.trim().to_owned()
-    if trimmed.has_prefix("[") {
-      json_line = Some(trimmed)
+    guard trimmed.has_prefix(headers_prefix()) else { continue }
+    let text = trimmed[headers_prefix().length():].trim().to_owned()
+    try {
+      headers.push(@json.parse(text))
+    } catch {
+      _ => ()
     }
   }
-  match json_line {
-    Some(text) => Some(@json.parse(text)) catch { _ => None }
-    None => None
-  }
+  headers
 }
 
 ///|
@@ -520,31 +537,27 @@ fn curl_http_status(report : Json?) -> Int? {
 
 ///|
 /// Whether response headers report an exhausted rate limit. Only header
-/// evidence is used — a bare 403 is never called a rate limit. `headers`
-/// is the `%{header_json}` array: one object per response, header names
-/// lowercased, values strings or arrays of strings.
-fn curl_rate_limited(headers : Json?) -> Bool {
-  match headers {
-    Some(Array(responses)) => {
-      for response in responses {
-        match response {
-          { "x-ratelimit-remaining": String(remaining), .. } =>
-            if remaining.trim().to_owned() == "0" {
-              return true
-            }
-          { "x-ratelimit-remaining": Array(values), .. } =>
-            for value in values {
-              if value is String(remaining) && remaining.trim().to_owned() == "0" {
-                return true
-              }
-            }
-          _ => ()
+/// evidence is used — a bare 403 is never called a rate limit. Each
+/// `%{header_json}` object maps lowercase header names to arrays of
+/// strings, e.g. {"x-ratelimit-remaining":["0"]}.
+fn curl_rate_limited(headers : Array[Json]) -> Bool {
+  for object in headers {
+    match object {
+      { "x-ratelimit-remaining": Array(values), .. } =>
+        for value in values {
+          if value is String(remaining) &&
+            remaining.trim().to_owned() == "0" {
+            return true
+          }
         }
-      }
-      false
+      { "x-ratelimit-remaining": String(remaining), .. } =>
+        if remaining.trim().to_owned() == "0" {
+          return true
+        }
+      _ => ()
     }
-    _ => false
   }
+  false
 }
 
 ///|
@@ -610,7 +623,7 @@ async fn download(url : String, path : String) -> Unit {
   let args = [
     "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
     "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "300",
-    "--max-filesize", "268435456", "--write-out", "%{stderr}%{json}\n%{stderr}%{header_json}", "--output",
+    "--max-filesize", "268435456", "--write-out", "%{stderr}REPORT:%{json}\n%{stderr}HEADERS:%{header_json}", "--output",
     path, url,
   ]
   let response = @shell.Cmd("curl", args).output(timeout_ms=300000)
@@ -621,7 +634,7 @@ async fn download(url : String, path : String) -> Unit {
   }
   match curl_http_status(report) {
     Some(code) if code >= 200 && code < 300 => ()
-    Some(code) => abort_http_status("download the release asset", url, code, curl_rate_limited(curl_headers_json(response.stderr())))
+    Some(code) => abort_http_status("download the release asset", url, code, curl_rate_limited(curl_headers(response.stderr())))
     None =>
       abort_install(
         Transfer, "download the release asset", url,
@@ -661,7 +674,7 @@ async fn fetch_text(url : String, accept_json : Bool, what : String) -> String? 
   let args = [
       "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
       "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "30",
-      "--max-filesize", "16777216", "--write-out", "%{stderr}%{json}\n%{stderr}%{header_json}",
+      "--max-filesize", "16777216", "--write-out", "%{stderr}REPORT:%{json}\n%{stderr}HEADERS:%{header_json}",
     ] +
     headers +
     [url]
@@ -678,7 +691,7 @@ async fn fetch_text(url : String, accept_json : Bool, what : String) -> String? 
     Some(code) if code >= 200 && code < 300 =>
       Some(@utf8.decode(response.stdout_bytes()))
     Some(404) => None
-    Some(code) => abort_http_status(what, url, code, curl_rate_limited(curl_headers_json(response.stderr())))
+    Some(code) => abort_http_status(what, url, code, curl_rate_limited(curl_headers(response.stderr())))
     None =>
       abort_install(
         Transfer, what, url, "no HTTP status was observed",
@@ -1428,6 +1441,15 @@ async fn path_kind_no_follow(path : String) -> @fs.FileKind? {
 }
 
 ///|
+/// File kind following symlinks — what a shell's exec resolution sees.
+async fn path_kind(path : String) -> @fs.FileKind? {
+  Some(@fs.kind(path)) catch {
+    @os_error.OSError(_) as err if err.is_ENOENT() => None
+    err => raise err
+  }
+}
+
+///|
 async fn check_destination(path : String, force : Bool) -> Unit {
   match path_kind_no_follow(path) {
     Some(Regular) if force => ()
@@ -1442,6 +1464,7 @@ pub struct StagedInstall {
   destination : String
   staging : String
   staging_dir : String
+  binary_digest : String
 }
 
 ///|
@@ -2595,7 +2618,7 @@ async fn stage_install(
   @fs.chmod(staging, 0o755)
   verify_binary_compat(staging, binary, skip_compat_check, bin_dir)
   ownership_transferred = true
-  { destination, staging, staging_dir, }
+  { destination, staging, staging_dir, binary_digest: bytes_sha256(binary), }
 }
 
 ///|
@@ -2613,10 +2636,15 @@ priv enum InstallDecision {
 }
 
 ///|
+/// SHA-256 of bytes, in the `sha256:hex` release form.
+fn bytes_sha256(bytes : Bytes) -> String {
+  "sha256:" + @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
 /// SHA-256 of a file's current content, in the `sha256:hex` release form.
 async fn file_sha256(path : String) -> String {
-  let bytes = @fs.read_file(path).binary()
-  "sha256:" + @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+  bytes_sha256(@fs.read_file(path).binary())
 }
 
 ///|
@@ -2643,7 +2671,10 @@ async fn decide_install(
       let candidate_digest = plan.install.asset.digest.to_lower()
       let receipt = read_receipt_file(receipt_path(bin_dir, binary))
       match receipt {
-        Some(stored) if stored.digest == existing_digest => {
+        // Managed and unmodified: the stored BINARY digest matches the
+        // file's current content. The asset (archive) digest never
+        // touches the file (issue 0001).
+        Some(stored) if stored.binary_digest == existing_digest => {
           guard stored.binary == binary &&
             stored.repository == plan.repository &&
             stored.package_key == plan.package_key else {
@@ -2653,7 +2684,10 @@ async fn decide_install(
               action="choose another --bin-dir, or pass --force to replace it anyway",
             )
           }
-          if candidate_digest == existing_digest {
+          // Same verified release asset → the extracted binary is the
+          // same too; skip without downloading (works for zip/tar
+          // archives whose bytes differ from the executable).
+          if candidate_digest == stored.asset_digest {
             return Skip
           }
           match semver_compare(plan.install.asset.tag, stored.tag) {
@@ -2706,11 +2740,14 @@ async fn decide_install(
 }
 
 ///|
-/// Record the install receipt for a successfully placed binary.
+/// Record the install receipt for a successfully placed binary: the
+/// asset digest identifies the release, the binary digest identifies
+/// the installed file (issue 0001).
 async fn record_install_receipt(
   plan : ResolvedInstallPlan,
   coordinate : String,
   bin_dir : String,
+  binary_digest : String,
 ) -> Unit {
   write_receipt(
     InstallReceipt::{
@@ -2721,7 +2758,8 @@ async fn record_install_receipt(
       binary: plan.install.binary,
       target: plan.target,
       tag: plan.install.asset.tag,
-      digest: plan.install.asset.digest.to_lower(),
+      asset_digest: plan.install.asset.digest.to_lower(),
+      binary_digest,
       destination: bin_dir + "/" + plan.install.binary,
     },
   )
@@ -2965,6 +3003,7 @@ async fn install_many_using(
       resolved[plan_index],
       describe_coordinate(options.coordinates[plan_index]),
       bin_dir,
+      item.binary_digest,
     )
     let tag = resolved[plan_index].install.asset.tag
     match decisions[plan_index] {
@@ -2984,12 +3023,50 @@ async fn install_many_using(
           resolved[i],
           describe_coordinate(options.coordinates[i]),
           bin_dir,
+          file_sha256(bin_dir + "/" + item.binary),
         )
       }
     }
   }
   println("Destination: \{bin_dir} (\{dir_source})")
   report_path_diagnostics(bin_dir, resolved)
+}
+
+///|
+/// Where a bare `name` resolves for a shell user, in PATH order. Unlike
+/// the self-update lookup, this mirrors what exec actually does: empty
+/// and relative PATH entries resolve against the current working
+/// directory, symlinks are followed to regular files, and the candidate
+/// must carry an executable bit — no file is ever invoked.
+async fn path_resolved_candidates(name : String) -> Array[String] {
+  let found : Array[String] = []
+  let raw = match @env.get_env_var("PATH") {
+    Some(value) => value
+    None => ""
+  }
+  let cwd = @env.current_dir()
+  for entry in raw.split(":") {
+    let text = entry.to_owned()
+    let dir = if text.has_prefix("/") {
+      text
+    } else {
+      match cwd {
+        Some(cwd_dir) =>
+          if text == "" {
+            cwd_dir
+          } else {
+            cwd_dir + "/" + text
+          }
+        None => continue
+      }
+    }
+    let candidate = dir + "/" + name
+    match path_kind(candidate) {
+      Some(Regular) => if @fs.can_execute(candidate) { found.push(candidate) }
+      _ => ()
+    }
+  }
+  found
 }
 
 ///|
@@ -3009,7 +3086,7 @@ async fn report_path_diagnostics(
     }
     seen.push(name)
     let destination = bin_dir + "/" + name
-    let candidates = path_candidates(name)
+    let candidates = path_resolved_candidates(name)
     if candidates.length() == 0 {
       eprintln(
         "moon-binstall: note: '\{name}' is not on PATH (installed at '\{destination}')",

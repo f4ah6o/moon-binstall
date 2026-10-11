@@ -1,10 +1,12 @@
 ///|
 /// An install receipt records what moon-binstall placed at a destination:
 /// the coordinate and source it came from, the package/binary identity, the
-/// selected tag and the verified digest of the installed content. Receipts
-/// let a later run tell its own managed files from foreign or modified ones
-/// (issue 0001). A receipt alone never trusts a file: the stored digest is
-/// always compared to the file's current content.
+/// selected tag, and two digests kept strictly separate (issue 0001).
+/// `asset_digest` hashes the downloaded release asset (often a zip/tar
+/// archive) and is compared to the next candidate's declared digest so an
+/// identical release skips without downloading. `binary_digest` hashes the
+/// extracted executable actually written and is compared to the file's
+/// current content — a receipt alone never trusts a file.
 pub struct InstallReceipt {
   coordinate : String
   source : String
@@ -13,7 +15,8 @@ pub struct InstallReceipt {
   binary : String
   target : String
   tag : String
-  digest : String
+  asset_digest : String
+  binary_digest : String
   destination : String
 }
 
@@ -40,7 +43,8 @@ async fn write_receipt(receipt : InstallReceipt) -> Unit {
     "binary": receipt.binary,
     "target": receipt.target,
     "tag": receipt.tag,
-    "digest": receipt.digest,
+    "asset_digest": receipt.asset_digest,
+    "binary_digest": receipt.binary_digest,
     "destination": receipt.destination,
   }
   @fs.write_file(
@@ -80,7 +84,8 @@ async fn read_receipt_file(path : String) -> InstallReceipt? {
       "binary": String(binary),
       "target": String(target),
       "tag": String(tag),
-      "digest": String(digest),
+      "asset_digest": String(asset_digest),
+      "binary_digest": String(binary_digest),
       "destination": String(destination),
       ..
     } =>
@@ -93,7 +98,8 @@ async fn read_receipt_file(path : String) -> InstallReceipt? {
           binary,
           target,
           tag,
-          digest,
+          asset_digest,
+          binary_digest,
           destination,
         },
       )

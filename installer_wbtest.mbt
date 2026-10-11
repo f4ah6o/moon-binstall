@@ -3137,7 +3137,7 @@ async test "another package's same-named binary refuses the replacement" {
   }
   @fs.write_file(
     path,
-    "{\"version\":1,\"coordinate\":\"other/mod/cmd/tool\",\"source\":\"mooncakes+github-releases\",\"repository\":\"other/repo\",\"package\":\"other/pkg\",\"binary\":\"tool\",\"target\":\"linux-x86_64\",\"tag\":\"v1.2.3\",\"digest\":\"\{stored.digest}\",\"destination\":\"\{stored.destination}\"}\n",
+    "{\"version\":1,\"coordinate\":\"other/mod/cmd/tool\",\"source\":\"mooncakes+github-releases\",\"repository\":\"other/repo\",\"package\":\"other/pkg\",\"binary\":\"tool\",\"target\":\"linux-x86_64\",\"tag\":\"v1.2.3\",\"asset_digest\":\"\{stored.asset_digest}\",\"binary_digest\":\"\{stored.binary_digest}\",\"destination\":\"\{stored.destination}\"}\n",
   )
   let rejected = try {
     install_many_using(
@@ -3163,4 +3163,143 @@ test "semver comparison only orders strict three-part versions" {
   assert_eq(semver_compare("nightly", "v1.0.0"), None)
   assert_eq(semver_compare("v1.2", "v1.2.3"), None)
   assert_eq(semver_compare("v1.2.3-beta", "v1.2.3"), None)
+}
+
+///|
+/// A GitHub release fixture whose asset is a zip archive: the release
+/// digest then hashes archive bytes, never the extracted binary.
+async fn make_github_zip_transport(
+  root : String,
+  tag : String,
+  version : String,
+  content : String,
+) -> FixtureTransport {
+  let asset_name = "tool-linux-x86_64.zip"
+  let archive = root + "/tool-\{version}.zip"
+  create_fixture_zip(archive, "tool", content)
+  let digest = fixture_digest(archive)
+  let asset_url = "https://github.com/acme/tool/releases/download/\{tag}/\{asset_name}"
+  let api = "https://api.github.com/repos/acme/tool/releases/tags/\{tag}"
+  let release = "{\"tag_name\":\"\{tag}\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  {
+    responses: [(api, release)],
+    files: [(asset_url, archive)],
+    failures: [],
+  }
+}
+
+///|
+async test "zip asset installs skip on identical release and update on newer" {
+  let root = @fs.tmpdir(prefix="moon-binstall-zip-receipt")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(make_github_zip_transport(root, "v1.2.3", "1.2.3", "old-zip\n")),
+  )
+  let destination = bin_dir + "/tool"
+  assert_eq(@fs.read_file(destination).text(), "old-zip\n")
+  // The receipt separates the archive digest from the binary digest.
+  let stored = match
+    read_receipt_file(receipt_path(bin_dir, "tool")) {
+    Some(value) => value
+    None => abort("receipt must exist")
+  }
+  assert_true(stored.asset_digest != stored.binary_digest)
+  assert_eq(stored.binary_digest, file_sha256(destination))
+  // Identical release: skip without downloading or rewriting.
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(make_github_zip_transport(root, "v1.2.3", "1.2.3", "old-zip\n")),
+  )
+  assert_eq(@fs.read_file(destination).text(), "old-zip\n")
+  // A newer release updates the managed file without --force.
+  install_many_using(
+    github_options(bin_dir, "v1.2.4", false),
+    Fixture(make_github_zip_transport(root, "v1.2.4", "1.2.4", "new-zip\n")),
+  )
+  assert_eq(@fs.read_file(destination).text(), "new-zip\n")
+}
+
+///|
+async test "a modified zip-installed binary still refuses" {
+  let root = @fs.tmpdir(prefix="moon-binstall-zip-tampered")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  install_many_using(
+    github_options(bin_dir, "v1.2.3", false),
+    Fixture(make_github_zip_transport(root, "v1.2.3", "1.2.3", "zip-bytes\n")),
+  )
+  @fs.write_file(bin_dir + "/tool", "hand-edited\n")
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.4", false),
+      Fixture(make_github_zip_transport(root, "v1.2.4", "1.2.4", "new\n")),
+    )
+    false
+  } catch {
+    InstallError(stage=Destination, reason~, ..) =>
+      reason.contains("modified after install")
+    _ => false
+  }
+  assert_true(rejected)
+}
+
+///|
+test "curl write-out labels separate the report from response headers" {
+  let report = "REPORT:{\"http_code\":200,\"url_effective\":\"https://example.test/\"}"
+  let headers = "HEADERS:{\"content-type\":[\"application/json\"],\"x-ratelimit-remaining\":[\"0\"]}"
+  let stderr_text = "curl: some noise\n\{report}\n\{headers}\n"
+  let parsed = match curl_report(stderr_text) {
+    Some(value) => value
+    None => abort("report must parse")
+  }
+  assert_eq(curl_http_status(Some(parsed)), Some(200))
+  assert_true(curl_rate_limited(curl_headers(stderr_text)))
+  // Old curl (< 7.84) prints an unknown-variable notice instead of JSON:
+  // the report still parses and no headers are found.
+  let old_stderr = "\{report}\nHEADERS:curl: unknown --write-out variable: 'header_json'\n"
+  assert_eq(
+    curl_http_status(curl_report(old_stderr)),
+    Some(200),
+  )
+  assert_true(!curl_rate_limited(curl_headers(old_stderr)))
+}
+
+///|
+test "a 404 report parses as a confirmed not-found status" {
+  let stderr_text = "REPORT:{\"http_code\":404}\nHEADERS:{\"x-github-request-id\":[\"abc\"]}\n"
+  assert_eq(curl_http_status(curl_report(stderr_text)), Some(404))
+  assert_true(!curl_rate_limited(curl_headers(stderr_text)))
+}
+
+///|
+async test "PATH diagnostics resolve symlinks and cwd-relative entries" {
+  let root = @fs.tmpdir(prefix="moon-binstall-pathdiag")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let early = root + "/early"
+  let late = root + "/late"
+  let real = root + "/real"
+  @fs.mkdir(early)
+  @fs.mkdir(late)
+  @fs.mkdir(real)
+  @fs.write_file(real + "/tool", "#!/bin/true\n")
+  @fs.chmod(real + "/tool", 0o755)
+  @fs.symlink(target=real + "/tool", early + "/tool")
+  // A non-executable regular file does not resolve for a bare name.
+  @fs.write_file(late + "/other", "data\n")
+  let saved = @env.get_env_var("PATH")
+  defer (match saved {
+    Some(value) => @env.set_env_var("PATH", value)
+    None => @env.unset_env_var("PATH")
+  })
+  @env.set_env_var("PATH", "\{early}:\{late}")
+  let hits = path_resolved_candidates("tool")
+  assert_eq(hits.length(), 1)
+  assert_eq(hits[0], early + "/tool")
+  // A relative PATH entry resolves against the working directory.
+  @env.set_env_var("PATH", ".")
+  @env.set_env_var("PWD", root)
+  let cwd_hits = path_resolved_candidates("nope")
+  assert_eq(cwd_hits.length(), 0)
 }
