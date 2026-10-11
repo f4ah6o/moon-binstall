@@ -2011,13 +2011,18 @@ async fn check_library_closure(
             )
           } else {
             match library_defined_versions(found) {
+              // Only a provider that DOES define versions can be checked:
+              // a file with no .gnu.version_d at all binds the symbol with
+              // a "no version information available" warning — the loader
+              // still runs it (e.g. musl libc, or a library relinked
+              // without its version script). An unparseable provider is
+              // left to the runtime loader the same way.
               Some(defined) =>
-                if !defined.contains(version) {
+                if !defined.is_empty() && !defined.contains(version) {
                   fail(
                     "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{found} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
                   )
                 }
-              // An unparseable provider is left to the runtime loader.
               None => ()
             }
             if !visited.contains(found) {

@@ -2490,6 +2490,44 @@ async test "verify_binary_compat satisfies a same-list SONAME alias on linux" {
 }
 
 ///|
+async test "verify_binary_compat allows an unversioned provider on linux" {
+  guard require_platform() == "linux-x86_64" else { return }
+  let install_dir = @fs.tmpdir(prefix="moon-binstall-unversioned")
+  defer (@fs.rmdir(install_dir, recursive=true) catch { _ => () })
+  let loader = staged_loader(install_dir)
+  // The app records a DT_VERNEED for MOON_PR15_1.0, but the provider was
+  // relinked without any version script — no .gnu.version_d at all. ld.so
+  // warns "no version information available" yet still binds and runs.
+  @fs.write_file(
+    install_dir + "/libmoonver.so.1",
+    make_test_elf64(62, 3, None, [], None, [], []),
+  )
+  let elf = make_test_elf64(
+    62,
+    2,
+    Some(loader),
+    ["libmoonver.so.1"],
+    Some("$ORIGIN"),
+    [("libmoonver.so.1", ["MOON_PR15_1.0"])],
+    [],
+  )
+  verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+  // A provider that defines OTHER versions but not the required one is
+  // a hard failure for the real loader — still rejected.
+  @fs.write_file(
+    install_dir + "/libmoonver.so.1",
+    make_test_elf64(62, 3, None, [], None, [], ["OTHER_1.0"]),
+  )
+  let error = try {
+    verify_binary_compat("/tmp/staged-app", elf, false, install_dir)
+    ""
+  } catch {
+    error => error.to_string()
+  }
+  assert_true(error.contains("MOON_PR15_1.0"))
+}
+
+///|
 async test "verify_binary_compat checks transitive dependencies on linux" {
   guard require_platform() == "linux-x86_64" else { return }
   let install_dir = @fs.tmpdir(prefix="moon-binstall-transitive")
