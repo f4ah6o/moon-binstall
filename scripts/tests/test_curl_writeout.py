@@ -52,12 +52,23 @@ def curl_writeout(url):
 
 def sections(stderr):
     report, headers = None, []
+    pending = ""
     for line in stderr.splitlines():
+        if line.startswith("HEADERS:"):
+            pending = line[len("HEADERS:"):]
+        elif pending:
+            pending += "\n" + line.strip()
+        else:
+            pending = ""
         if line.startswith("REPORT:"):
+            pending = ""
             report = json.loads(line[len("REPORT:"):])
-        elif line.startswith("HEADERS:"):
+            continue
+        if pending:
             try:
-                headers.append(json.loads(line[len("HEADERS:"):]))
+                # %{header_json} is pretty-printed over several lines.
+                headers.append(json.loads(pending))
+                pending = ""
             except json.JSONDecodeError:
                 # curl < 7.84 prints "unknown --write-out variable" here.
                 pass

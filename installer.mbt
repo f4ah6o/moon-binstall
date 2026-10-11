@@ -504,17 +504,29 @@ fn curl_report(stderr_text : String) -> Json? {
 /// response headers and `%{header_json}` needs curl >= 7.84; older curls
 /// print "unknown variable" after the label, which fails JSON parsing
 /// and simply yields no entry (a bare 403 is then never called a rate
-/// limit, never a false claim).
+/// limit, never a false claim). curl emits the object pretty-printed
+/// over several lines, so lines accumulate until one parses.
 fn curl_headers(stderr_text : String) -> Array[Json] {
   let headers : Array[Json] = []
+  let mut pending : String? = None
   for line in stderr_text.split("\n") {
     let trimmed = line.trim().to_owned()
-    guard trimmed.has_prefix(headers_prefix()) else { continue }
-    let text = trimmed[headers_prefix().length():].trim().to_owned()
-    try {
-      headers.push(@json.parse(text))
-    } catch {
-      _ => ()
+    if trimmed.has_prefix(headers_prefix()) {
+      pending = Some(trimmed[headers_prefix().length():].to_owned())
+    } else if pending is Some(text) {
+      pending = Some(text + "\n" + trimmed)
+    } else {
+      continue
+    }
+    match pending {
+      Some(text) =>
+        try {
+          headers.push(@json.parse(text))
+          pending = None
+        } catch {
+          _ => ()
+        }
+      None => ()
     }
   }
   headers
