@@ -31,13 +31,23 @@ pub fn usage() -> String {
   let msg =
     #|moon-binstall — install checksum-verified MoonBit CLI binaries
     #|
+    #|Example:
+    #|  moon binstall f4ah6o/dsh.mbt
+    #|
     #|Usage:
     #|  moon-binstall [--module OWNER/MODULE] <coordinate>... [options]
     #|  moon-binstall owner/module/package[@version]... [options]
     #|
     #|Coordinates:
-    #|  owner/repo[@tag]                 GitHub Releases compatibility mode
-    #|  owner/module/package[@version]   Mooncakes package metadata mode
+    #|  owner/repo[@tag]                 2 parts: install from this GitHub
+    #|                                   repository's Releases. MoonBit module
+    #|                                   repositories conventionally end in
+    #|                                   .mbt — f4ah6o/dsh.mbt is the dsh
+    #|                                   module's repository.
+    #|  owner/module/package[@version]   3 parts: install a Mooncakes package;
+    #|                                   owner/module names the module fetched
+    #|                                   from the registry, package is the
+    #|                                   executable package inside it.
     #|  with --module, coordinate is package/path[@version]
     #|
     #|Options:
@@ -85,20 +95,20 @@ pub fn parse_options(argv : ArrayView[String]) -> Options raise {
       "--bin-dir" => {
         idx = idx + 1
         guard idx < argv.length() && argv[idx] != "" else {
-          fail("--bin-dir requires a directory")
+          abort_args("--bin-dir requires a directory")
         }
         directory = Some(argv[idx])
       }
       _ => {
         guard !arg.has_prefix("-") && coordinate == "" else {
-          fail("unrecognized or duplicate argument: \{arg}")
+          abort_args("unrecognized or duplicate argument: \{arg}")
         }
         coordinate = arg
       }
     }
     idx = idx + 1
   }
-  guard coordinate != "" else { fail("missing repository coordinate") }
+  guard coordinate != "" else { abort_args("missing repository coordinate") }
   {
     pkg: parse_package(coordinate),
     directory,
@@ -133,18 +143,18 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
     match arg {
       "install" if idx == 0 => ()
       "--dry-run" => {
-        guard !seen_dry_run else { fail("duplicate argument: --dry-run") }
+        guard !seen_dry_run else { abort_args("duplicate argument: --dry-run") }
         dry_run = true
         seen_dry_run = true
       }
       "--force" => {
-        guard !seen_force else { fail("duplicate argument: --force") }
+        guard !seen_force else { abort_args("duplicate argument: --force") }
         force = true
         seen_force = true
       }
       "--skip-compat-check" => {
         guard !seen_skip_compat_check else {
-          fail("duplicate argument: --skip-compat-check")
+          abort_args("duplicate argument: --skip-compat-check")
         }
         skip_compat_check = true
         seen_skip_compat_check = true
@@ -152,17 +162,17 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
       "--bin-dir" => {
         idx = idx + 1
         guard idx < argv.length() && argv[idx] != "" else {
-          fail("--bin-dir requires a directory")
+          abort_args("--bin-dir requires a directory")
         }
-        guard directory is None else { fail("duplicate argument: --bin-dir") }
+        guard directory is None else { abort_args("duplicate argument: --bin-dir") }
         directory = Some(argv[idx])
       }
       "--target" => {
         idx = idx + 1
-        guard idx < argv.length() else { fail("--target requires a target") }
-        guard !seen_target else { fail("duplicate argument: --target") }
+        guard idx < argv.length() else { abort_args("--target requires a target") }
+        guard !seen_target else { abort_args("duplicate argument: --target") }
         guard !seen_targets else {
-          fail("--target and --targets are mutually exclusive")
+          abort_args("--target and --targets are mutually exclusive")
         }
         seen_target = true
         validate_target(argv[idx])
@@ -171,75 +181,75 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
       "--targets" => {
         idx = idx + 1
         guard idx < argv.length() else {
-          fail("--targets requires a target list")
+          abort_args("--targets requires a target list")
         }
-        guard !seen_targets else { fail("duplicate argument: --targets") }
+        guard !seen_targets else { abort_args("duplicate argument: --targets") }
         guard !seen_target else {
-          fail("--target and --targets are mutually exclusive")
+          abort_args("--target and --targets are mutually exclusive")
         }
         seen_targets = true
         target = Some(parse_target_list(argv[idx]).join(","))
       }
       "--version" => {
         idx = idx + 1
-        guard idx < argv.length() else { fail("--version requires a version") }
-        guard version is None else { fail("duplicate argument: --version") }
+        guard idx < argv.length() else { abort_args("--version requires a version") }
+        guard version is None else { abort_args("duplicate argument: --version") }
         version = Some(argv[idx])
       }
       "--pkg-url" => {
         idx = idx + 1
-        guard idx < argv.length() else { fail("--pkg-url requires a template") }
-        guard pkg_url is None else { fail("duplicate argument: --pkg-url") }
+        guard idx < argv.length() else { abort_args("--pkg-url requires a template") }
+        guard pkg_url is None else { abort_args("duplicate argument: --pkg-url") }
         pkg_url = Some(argv[idx])
       }
       "--pkg-fmt" => {
         idx = idx + 1
-        guard idx < argv.length() else { fail("--pkg-fmt requires a format") }
-        guard pkg_fmt is None else { fail("duplicate argument: --pkg-fmt") }
+        guard idx < argv.length() else { abort_args("--pkg-fmt requires a format") }
+        guard pkg_fmt is None else { abort_args("duplicate argument: --pkg-fmt") }
         validate_archive_format(argv[idx])
         pkg_fmt = Some(argv[idx])
       }
       "--bin-path" => {
         idx = idx + 1
-        guard idx < argv.length() else { fail("--bin-path requires a path") }
-        guard bin_path is None else { fail("duplicate argument: --bin-path") }
+        guard idx < argv.length() else { abort_args("--bin-path requires a path") }
+        guard bin_path is None else { abort_args("duplicate argument: --bin-path") }
         validate_member_path(argv[idx])
         bin_path = Some(argv[idx])
       }
       "--module" => {
         idx = idx + 1
         guard idx < argv.length() else {
-          fail("--module requires owner/module")
+          abort_args("--module requires owner/module")
         }
-        guard module_path is None else { fail("duplicate argument: --module") }
+        guard module_path is None else { abort_args("duplicate argument: --module") }
         let parts = argv[idx].split("/").collect()
         guard parts.length() == 2 &&
           valid_id(parts[0].to_owned()) &&
           valid_id(parts[1].to_owned()) else {
-          fail("--module must be owner/module")
+          abort_args("--module must be owner/module")
         }
         module_path = Some(argv[idx])
       }
       "--manifest-path" => {
         idx = idx + 1
         guard idx < argv.length() && argv[idx] != "" else {
-          fail("--manifest-path requires a file")
+          abort_args("--manifest-path requires a file")
         }
         guard manifest_path is None else {
-          fail("duplicate argument: --manifest-path")
+          abort_args("duplicate argument: --manifest-path")
         }
         manifest_path = Some(argv[idx])
       }
       _ => {
         guard !arg.has_prefix("-") else {
-          fail("unrecognized or duplicate argument: \{arg}")
+          abort_args("unrecognized or duplicate argument: \{arg}")
         }
         raw_coordinates.push(arg)
       }
     }
     idx = idx + 1
   }
-  guard raw_coordinates.length() > 0 else { fail("missing package coordinate") }
+  guard raw_coordinates.length() > 0 else { abort_args("missing package coordinate") }
   let coordinates : Array[InstallCoordinate] = []
   match module_path {
     Some(module_name) =>
@@ -253,27 +263,27 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
   }
   if version is Some(_) {
     guard coordinates.length() == 1 else {
-      fail(
+      abort_args(
         "--version applies to one package; use @VERSION on each package in a batch",
       )
     }
     match coordinates[0] {
       GitHub(pkg) =>
         if pkg.version is Some(_) {
-          fail("cannot combine --version with @tag")
+          abort_args("cannot combine --version with @tag")
         }
       Mooncakes(pkg) =>
         if pkg.version is Some(_) {
-          fail("cannot combine --version with @version")
+          abort_args("cannot combine --version with @version")
         }
     }
   }
   if manifest_path is Some(_) {
     guard coordinates.length() == 1 else {
-      fail("--manifest-path can be used with one package at a time")
+      abort_args("--manifest-path can be used with one package at a time")
     }
     guard coordinates[0] is Mooncakes(_) else {
-      fail("--manifest-path requires a Mooncakes package coordinate")
+      abort_args("--manifest-path requires a Mooncakes package coordinate")
     }
   }
   {
@@ -298,7 +308,7 @@ pub fn validate_target(target : String) -> Unit raise {
     target == "linux-aarch64" ||
     target == "darwin-x86_64" ||
     target == "darwin-aarch64" else {
-    fail("unsupported target: \{target}")
+    abort_args("unsupported target: \{target}")
   }
 }
 
@@ -307,14 +317,14 @@ pub fn validate_target(target : String) -> Unit raise {
 /// in its existing target field as a comma-separated, validated sequence.
 pub fn parse_target_list(value : String) -> Array[String] raise {
   let entries = value.split(",").collect()
-  guard entries.length() > 0 else { fail("--targets requires a target list") }
+  guard entries.length() > 0 else { abort_args("--targets requires a target list") }
   let targets : Array[String] = []
   for entry in entries {
     let candidate = entry.trim().to_owned()
-    guard candidate != "" else { fail("--targets contains an empty target") }
+    guard candidate != "" else { abort_args("--targets contains an empty target") }
     validate_target(candidate)
     guard !targets.contains(candidate) else {
-      fail("duplicate target in --targets: \{candidate}")
+      abort_args("duplicate target in --targets: \{candidate}")
     }
     targets.push(candidate)
   }
@@ -324,9 +334,9 @@ pub fn parse_target_list(value : String) -> Array[String] raise {
 ///|
 async fn require_platform() -> String {
   let (os_status, os_out) = @process.collect_stdout("uname", ["-s"])
-  guard os_status == 0 else { fail("uname -s failed") }
+  guard os_status == 0 else { abort_compat_msg("uname -s failed") }
   let (cpu_status, cpu_out) = @process.collect_stdout("uname", ["-m"])
-  guard cpu_status == 0 else { fail("uname -m failed") }
+  guard cpu_status == 0 else { abort_compat_msg("uname -m failed") }
   platform_key(
     os_out.text().trim().to_owned(),
     cpu_out.text().trim().to_owned(),
@@ -334,54 +344,338 @@ async fn require_platform() -> String {
 }
 
 ///|
-fn target_directory(dir_override : String?) -> String raise {
+/// Destination precedence (issue 0004): --bin-dir beats MOON_BINSTALL_DIR,
+/// which beats the $HOME/.local/bin default. Returns the directory with a
+/// label naming the winning source for the success output.
+fn target_directory_with_source(dir_override : String?) -> (String, String) raise {
   match dir_override {
     Some(dir) => {
       guard dir != "" && dir.has_prefix("/") else {
-        fail("--bin-dir must be an absolute path")
+        abort_args("--bin-dir must be an absolute path")
       }
-      dir
+      (dir, "--bin-dir")
     }
     None =>
       match @env.get_env_var("MOON_BINSTALL_DIR") {
         Some(dir) => {
           guard dir != "" && dir.has_prefix("/") else {
-            fail("MOON_BINSTALL_DIR must be an absolute path")
+            abort_args("MOON_BINSTALL_DIR must be an absolute path")
           }
-          dir
+          (dir, "MOON_BINSTALL_DIR")
         }
         None =>
           match @env.get_env_var("HOME") {
-            Some(home) => home + "/.local/bin"
-            None => fail("HOME is not set; provide --bin-dir")
+            Some(home) => (home + "/.local/bin", "$HOME/.local/bin")
+            None => abort_args("HOME is not set; provide --bin-dir")
           }
       }
   }
 }
 
 ///|
-/// Fail if curl refuses the transfer, rather than treating a 404 body as a
-/// binary. Keep every request HTTPS, redirect only to HTTPS, and bound time.
-async fn download(url : String, path : String) -> Unit {
-  guard url.has_prefix("https://") else {
-    fail("refusing a non-HTTPS download URL")
+/// Absolute PATH directories that actually contain an executable named
+/// `name`, in PATH order. Empty and relative PATH elements are skipped
+/// (they resolve against a caller's cwd, which is not what a bare command
+/// name resolves to here) — no executable is ever run to find out.
+async fn path_candidates(name : String) -> Array[String] {
+  let found : Array[String] = []
+  let raw = match @env.get_env_var("PATH") {
+    Some(value) => value
+    None => ""
   }
-  let args = [
-    "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
-    "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "300",
-    "--max-filesize", "268435456", "--output", path, url,
-  ]
-  let status = @process.run("curl", args)
-  guard status == 0 else { fail("curl download failed (exit \{status})") }
-  let size = @fs.file_size(path)
-  guard size > 0L && size <= 268435456L else {
-    fail("downloaded asset has an invalid size")
+  for entry in raw.split(":") {
+    let dir = entry.to_owned()
+    guard dir.has_prefix("/") else { continue }
+    let candidate = dir + "/" + name
+    match path_kind_no_follow(candidate) {
+      Some(Regular) => found.push(candidate)
+      _ => ()
+    }
+  }
+  found
+}
+
+///|
+/// The absolute path of the currently running moon-binstall executable:
+/// argv[0] resolved through PATH for a bare name or through the cwd for a
+/// relative path. Only regular files qualify — a symlinked or otherwise
+/// non-regular argv[0] yields None, as does a bare name not found on PATH.
+async fn running_executable_path() -> String? {
+  let argv = @env.args()
+  guard argv.length() > 0 else { return None }
+  let argv0 = argv[0]
+  guard argv0 != "" else { return None }
+  if argv0.contains("/") {
+    let candidate = if argv0.has_prefix("/") {
+      argv0
+    } else {
+      match @env.current_dir() {
+        Some(cwd) => cwd + "/" + argv0
+        None => return None
+      }
+    }
+    match path_kind_no_follow(candidate) {
+      Some(Regular) => Some(candidate)
+      _ => None
+    }
+  } else {
+    let found = path_candidates(argv0)
+    if found.length() > 0 {
+      Some(found[0])
+    } else {
+      None
+    }
   }
 }
 
 ///|
-async fn fetch_text(url : String, accept_json : Bool) -> String? {
-  guard url.has_prefix("https://") else { fail("refusing a non-HTTPS request") }
+/// Whether `plan` is the installer updating itself (issue 0004): the
+/// candidate binary is moon-binstall and the resolved repository or module
+/// is a moon-binstall distribution point.
+fn is_self_update(plan : ResolvedInstallPlan) -> Bool {
+  plan.install.binary == "moon-binstall" &&
+  (plan.repository.has_suffix("/moon-binstall") ||
+    plan.package_key.contains("/moon-binstall/"))
+}
+
+///|
+/// For a self-update without an explicit destination, the target is the
+/// running executable's own directory — never a silent install elsewhere.
+/// Unknown identity, symlinks and unresolvable argv[0] refuse with the
+/// observed state and a --bin-dir path forward.
+async fn self_update_bin_dir(plan : ResolvedInstallPlan) -> String {
+  match running_executable_path() {
+    Some(path) => {
+      guard parent_dir(path) != "" else {
+        abort_install(
+          Destination, "locate the running executable", plan.install.binary,
+          "the running executable has no usable directory",
+          action="pass --bin-dir DIR to install elsewhere",
+        )
+      }
+      parent_dir(path)
+    }
+    None =>
+      abort_install(
+        Destination, "locate the running executable", plan.install.binary,
+        "cannot identify the running moon-binstall executable (argv[0] is bare, relative, missing from PATH, or not a regular file)",
+        action="pass --bin-dir DIR to install elsewhere",
+      )
+  }
+}
+
+///|
+/// The write-out label marking the `%{json}` transfer report on stderr.
+/// Both `%{json}` and `%{header_json}` emit `{`-objects, so each payload
+/// carries an explicit prefix instead of positional parsing.
+fn report_prefix() -> String {
+  "REPORT:"
+}
+
+///|
+/// The write-out label marking a `%{header_json}` response object.
+fn headers_prefix() -> String {
+  "HEADERS:"
+}
+
+///|
+/// Parse the `REPORT:%{json}` write-out line curl prints on stderr.
+/// Returns None when no report is present (e.g. curl too old for `%{json}`
+/// or the write-out never ran).
+fn curl_report(stderr_text : String) -> Json? {
+  let mut json_line : String? = None
+  for line in stderr_text.split("\n") {
+    let trimmed = line.trim().to_owned()
+    if trimmed.has_prefix(report_prefix()) {
+      json_line = Some(
+        trimmed[report_prefix().length():].trim().to_owned(),
+      )
+    }
+  }
+  match json_line {
+    Some(text) => Some(@json.parse(text)) catch { _ => None }
+    None => None
+  }
+}
+
+///|
+/// Parse every `HEADERS:%{header_json}` object on stderr — one per
+/// response when redirects were followed. `%{json}` never carries
+/// response headers and `%{header_json}` needs curl >= 7.84; older curls
+/// print "unknown variable" after the label, which fails JSON parsing
+/// and simply yields no entry (a bare 403 is then never called a rate
+/// limit, never a false claim). curl emits the object pretty-printed
+/// over several lines, so lines accumulate until one parses.
+fn curl_headers(stderr_text : String) -> Array[Json] {
+  let headers : Array[Json] = []
+  let mut pending : String? = None
+  for line in stderr_text.split("\n") {
+    let trimmed = line.trim().to_owned()
+    if trimmed.has_prefix(headers_prefix()) {
+      pending = Some(trimmed[headers_prefix().length():].to_owned())
+    } else if pending is Some(text) {
+      pending = Some(text + "\n" + trimmed)
+    } else {
+      continue
+    }
+    match pending {
+      Some(text) =>
+        try {
+          headers.push(@json.parse(text))
+          pending = None
+        } catch {
+          _ => ()
+        }
+      None => ()
+    }
+  }
+  headers
+}
+
+///|
+/// The HTTP status observed in a curl `%{json}` report, or None when the
+/// server never produced a response (a transport-level failure).
+fn curl_http_status(report : Json?) -> Int? {
+  match report {
+    Some({ "http_code": Number(code, ..), .. }) =>
+      if code.to_int() > 0 {
+        Some(code.to_int())
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+/// Whether response headers report an exhausted rate limit. Only header
+/// evidence is used — a bare 403 is never called a rate limit. Each
+/// `%{header_json}` object maps lowercase header names to arrays of
+/// strings, e.g. {"x-ratelimit-remaining":["0"]}.
+fn curl_rate_limited(headers : Array[Json]) -> Bool {
+  for object in headers {
+    match object {
+      { "x-ratelimit-remaining": Array(values), .. } =>
+        for value in values {
+          if value is String(remaining) &&
+            remaining.trim().to_owned() == "0" {
+            return true
+          }
+        }
+      { "x-ratelimit-remaining": String(remaining), .. } =>
+        if remaining.trim().to_owned() == "0" {
+          return true
+        }
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+/// Classify an HTTP status that is neither 2xx nor a 404.
+fn[T] abort_http_status(
+  what : String,
+  url : String,
+  code : Int,
+  rate_limited : Bool,
+) -> T raise InstallError {
+  if code == 403 && rate_limited {
+    abort_install(
+      Transfer, what, url,
+      "the server returned HTTP 403 (rate limit reached)",
+      action="wait for the rate limit to reset, then retry",
+    )
+  } else if code == 403 {
+    abort_install(
+      Transfer, what, url, "the server returned HTTP 403 (Forbidden)",
+      action="check that the target is accessible, then retry",
+    )
+  } else if code == 429 {
+    abort_install(
+      Transfer, what, url, "the server returned HTTP 429 (rate limited)",
+      action="wait, then retry",
+    )
+  } else if code >= 500 {
+    abort_install(
+      Transfer, what, url,
+      "the server returned HTTP \{code} (server error)",
+      action="retry later",
+    )
+  } else {
+    abort_install(
+      Transfer, what, url, "the server returned HTTP \{code}",
+      action="check the target and retry",
+    )
+  }
+}
+
+///|
+/// Classify a curl exit without a usable HTTP status as a communication
+/// failure — never as a missing repository or a name mismatch.
+fn[T] abort_transport(what : String, url : String, exit_code : Int) -> T raise InstallError {
+  abort_install(
+    Transfer, what, url, "communication failed (curl exit \{exit_code})",
+    action="check the network connection and retry",
+  )
+}
+
+///|
+/// Fail if curl refuses the transfer, rather than treating a 404 body as a
+/// binary. Keep every request HTTPS, redirect only to HTTPS, and bound time.
+/// HTTP status and transport exit are classified separately.
+async fn download(url : String, path : String) -> Unit {
+  guard url.has_prefix("https://") else {
+    abort_install(
+      Coordinate, "prepare download", url,
+      "refusing a non-HTTPS download URL",
+      action="report the coordinate that produced this URL",
+    )
+  }
+  let args = [
+    "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
+    "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "300",
+    "--max-filesize", "268435456", "--write-out", "%{stderr}REPORT:%{json}\n%{stderr}HEADERS:%{header_json}", "--output",
+    path, url,
+  ]
+  let response = @shell.Cmd("curl", args).output(timeout_ms=300000)
+  let exit_code = response.exit_code()
+  let report = curl_report(response.stderr())
+  if exit_code != 0 {
+    abort_transport("download the release asset", url, exit_code)
+  }
+  match curl_http_status(report) {
+    Some(code) if code >= 200 && code < 300 => ()
+    Some(code) => abort_http_status("download the release asset", url, code, curl_rate_limited(curl_headers(response.stderr())))
+    None =>
+      abort_install(
+        Transfer, "download the release asset", url,
+        "no HTTP status was observed",
+        action="check the network connection and retry",
+      )
+  }
+  let size = @fs.file_size(path)
+  guard size > 0L && size <= 268435456L else {
+    abort_install(
+      Transfer, "download the release asset", url,
+      "the downloaded asset has an invalid size",
+      action="retry; if it persists the release asset may be malformed",
+    )
+  }
+}
+
+///|
+/// Fetch an HTTPS resource. A confirmed HTTP 404 returns None so resolvers
+/// keep their "not found" control flow; any other status or a status-less
+/// transport failure raises a classified error instead.
+async fn fetch_text(url : String, accept_json : Bool, what : String) -> String? {
+  guard url.has_prefix("https://") else {
+    abort_install(
+      Coordinate, "prepare request", url,
+      "refusing a non-HTTPS request",
+      action="report the coordinate that produced this URL",
+    )
+  }
   let headers = if accept_json {
     [
       "--header", "Accept: application/vnd.github+json", "--header", "User-Agent: moon-binstall/0.1",
@@ -390,9 +684,9 @@ async fn fetch_text(url : String, accept_json : Bool) -> String? {
     ["--header", "User-Agent: moon-binstall/0.1"]
   }
   let args = [
-      "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
+      "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir",
       "=https", "--max-redirs", "5", "--connect-timeout", "15", "--max-time", "30",
-      "--max-filesize", "16777216",
+      "--max-filesize", "16777216", "--write-out", "%{stderr}REPORT:%{json}\n%{stderr}HEADERS:%{header_json}",
     ] +
     headers +
     [url]
@@ -400,26 +694,34 @@ async fn fetch_text(url : String, accept_json : Bool) -> String? {
     timeout_ms=30000,
     max_output_bytes=16777216,
   )
-  let code = response.exit_code()
-  if code == 22 {
-    return None
+  let exit_code = response.exit_code()
+  let report = curl_report(response.stderr())
+  if exit_code != 0 {
+    abort_transport(what, url, exit_code)
   }
-  guard code == 0 else {
-    fail("HTTPS request failed (curl exit \{code}): \{url}")
+  match curl_http_status(report) {
+    Some(code) if code >= 200 && code < 300 =>
+      Some(@utf8.decode(response.stdout_bytes()))
+    Some(404) => None
+    Some(code) => abort_http_status(what, url, code, curl_rate_limited(curl_headers(response.stderr())))
+    None =>
+      abort_install(
+        Transfer, what, url, "no HTTP status was observed",
+        action="check the network connection and retry",
+      )
   }
-  Some(@utf8.decode(response.stdout_bytes()))
 }
 
 ///|
 async fn verify_digest(path : String, expected : String) -> Unit {
   guard expected.has_prefix("sha256:") &&
     valid_sha256_hex(expected[7:].to_owned()) else {
-    fail("release asset has no valid SHA-256 digest")
+    abort_digest("release asset has no valid SHA-256 digest")
   }
   let bytes = @fs.read_file(path).binary()
   let actual = "sha256:" + @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
   guard actual == "sha256:" + expected[7:].to_owned().to_lower() else {
-    fail("SHA-256 verification failed: expected \{expected}, got \{actual}")
+    abort_digest("SHA-256 verification failed: expected \{expected}, got \{actual}")
   }
 }
 
@@ -430,12 +732,12 @@ fn github_release_api(
   tag : String?,
 ) -> String raise {
   guard valid_id(owner) && valid_id(repo) else {
-    fail("unsafe GitHub repository")
+    abort_resolve("unsafe GitHub repository")
   }
   let base = "https://api.github.com/repos/\{owner}/\{repo}/releases"
   match tag {
     Some(value) => {
-      guard valid_tag(value) else { fail("unsafe GitHub release tag") }
+      guard valid_tag(value) else { abort_resolve("unsafe GitHub release tag") }
       base + "/tags/" + value
     }
     None => base + "/latest"
@@ -446,7 +748,7 @@ fn github_release_api(
 fn release_tag(payload : String) -> String raise {
   let document = @json.parse(payload)
   guard document is { "tag_name": String(tag), .. } && valid_tag(tag) else {
-    fail("invalid GitHub release response")
+    abort_resolve("invalid GitHub release response")
   }
   tag
 }
@@ -485,6 +787,23 @@ priv struct ResolvedInstallPlan {
   target : String
   /// Publisher-declared minimum glibc version for Linux binaries.
   glibc_min : String?
+  /// Resolution source + repository/module for the user-facing summary.
+  source_label : String
+  /// Resolved GitHub repository (owner/repo), recorded in the receipt.
+  repository : String
+  /// Identity of the package that owns the binary: the module/package path
+  /// for Mooncakes, or the repository name for GitHub coordinates. Used to
+  /// spot a different package's same-named binary on update.
+  package_key : String
+}
+
+///|
+/// A deterministic failure a fixture transport reports for a URL: an HTTP
+/// status the server returned, or a transport exit with no HTTP response.
+#warnings("-unused_constructor")
+priv enum FixtureFailure {
+  HttpStatus(Int)
+  TransportExit(Int)
 }
 
 ///|
@@ -494,6 +813,7 @@ priv struct ResolvedInstallPlan {
 priv struct FixtureTransport {
   responses : Array[(String, String)]
   files : Array[(String, String)]
+  failures : Array[(String, FixtureFailure)]
 }
 
 ///|
@@ -504,11 +824,11 @@ priv enum Transport {
 }
 
 ///|
-fn fixture_lookup(
-  entries : Array[(String, String)],
+fn[T] fixture_lookup(
+  entries : Array[(String, T)],
   key : String,
-) -> String? raise {
-  let mut result : String? = None
+) -> T? raise {
+  let mut result : T? = None
   for entry in entries {
     if entry.0 == key {
       guard result is None else {
@@ -524,11 +844,23 @@ fn fixture_lookup(
 async fn fetch_text_using(
   url : String,
   accept_json : Bool,
+  what : String,
   transport : Transport,
 ) -> String? {
   match transport {
-    Https => fetch_text(url, accept_json)
-    Fixture(fixtures) => fixture_lookup(fixtures.responses, url)
+    Https => fetch_text(url, accept_json, what)
+    Fixture(fixtures) =>
+      match fixture_lookup(fixtures.responses, url) {
+        Some(body) => Some(body)
+        None =>
+          match fixture_lookup(fixtures.failures, url) {
+            Some(HttpStatus(404)) => None
+            Some(HttpStatus(code)) =>
+              abort_http_status(what, url, code, false)
+            Some(TransportExit(code)) => abort_transport(what, url, code)
+            None => None
+          }
+      }
   }
 }
 
@@ -541,6 +873,13 @@ async fn download_using(
   match transport {
     Https => download(url, path)
     Fixture(fixtures) => {
+      match fixture_lookup(fixtures.failures, url) {
+        Some(HttpStatus(code)) =>
+          abort_http_status("download the release asset", url, code, false)
+        Some(TransportExit(code)) =>
+          abort_transport("download the release asset", url, code)
+        None => ()
+      }
       let source = match fixture_lookup(fixtures.files, url) {
         Some(value) => value
         None => fail("fixture transport has no asset for URL: \{url}")
@@ -574,7 +913,7 @@ fn resolve_asset_for_release(
   }
   resolve_asset_plan_for_release(
     payload, owner, repo, binary, module_name, package_path, version_value, target,
-    config_set, options,
+    config_set, options, "github-releases \{owner}/\{repo}",
   ).install
 }
 
@@ -590,6 +929,7 @@ fn resolve_asset_plan_for_release(
   target : String,
   config_set : ArtifactConfigSet?,
   options : BatchOptions,
+  source_label : String,
 ) -> ResolvedInstallPlan raise {
   let tag = release_tag(payload)
   let target_candidates = match options.target {
@@ -683,7 +1023,7 @@ fn resolve_asset_plan_for_release(
   }
   let (asset, matched_target, matched_config) = match selected_asset {
     Some(value) => value
-    None => fail("no matching prebuilt asset in release \{tag}")
+    None => abort_resolve("no matching prebuilt asset in release \{tag}")
   }
   let requested_format = match options.pkg_fmt {
     Some(value) => Some(value)
@@ -746,6 +1086,9 @@ fn resolve_asset_plan_for_release(
       Some(item) => item.glibc_min
       None => None
     },
+    source_label,
+    repository: "\{owner}/\{repo}",
+    package_key: "\{module_name}/\{package_path}",
   }
 }
 
@@ -831,6 +1174,51 @@ async fn resolve_package(
 }
 
 ///|
+/// Describe a coordinate for user-facing resolution output.
+fn describe_coordinate(coordinate : InstallCoordinate) -> String {
+  match coordinate {
+    GitHub(pkg) => {
+      let suffix = match pkg.version {
+        Some(tag) => "@\{tag}"
+        None => ""
+      }
+      "\{pkg.owner}/\{pkg.repo}\{suffix}"
+    }
+    Mooncakes(pkg) => {
+      let suffix = match pkg.version {
+        Some(version) => "@\{version}"
+        None => ""
+      }
+      "\{pkg.module_path}/\{pkg.package_path}\{suffix}"
+    }
+  }
+}
+
+///|
+/// Read-only `.mbt` candidate check (issue 0002): only when the requested
+/// repository returned a confirmed 404 does this probe `owner/repo.mbt`'s
+/// latest release. A confirmed release yields a suggestion; any other
+/// outcome yields none. Never auto-switches coordinates.
+async fn suggest_github_repo(
+  owner : String,
+  repo : String,
+  transport : Transport,
+) -> String? {
+  guard !repo.has_suffix(".mbt") else { return None }
+  let candidate = repo + ".mbt"
+  let url = github_release_api(owner, candidate, None)
+  let payload = fetch_text_using(
+    url, true, "check a repository candidate", transport,
+  ) catch {
+    _ => return None
+  }
+  match payload {
+    Some(_) => Some("\{owner}/\{candidate}")
+    None => None
+  }
+}
+
+///|
 async fn resolve_package_plan(
   coordinate : InstallCoordinate,
   options : BatchOptions,
@@ -846,14 +1234,30 @@ async fn resolve_package_plan(
         None => pkg.version
       }
       let api = github_release_api(pkg.owner, pkg.repo, version)
-      let payload = match fetch_text_using(api, true, transport) {
+      let payload = match
+        fetch_text_using(api, true, "query the GitHub release", transport) {
         Some(value) => value
-        None => fail("GitHub release lookup failed: \{api}")
+        None => {
+          let suggestion = match
+            suggest_github_repo(pkg.owner, pkg.repo, transport) {
+            Some(candidate) => "\n  hint: did you mean \{candidate}?"
+            None => ""
+          }
+          abort_install(
+            Resolve, "query the GitHub release", api,
+            "no release was confirmed for \{pkg.owner}/\{pkg.repo}\{suggestion}",
+            action="check the repository name and tag, then retry",
+          )
+        }
       }
       let tag = release_tag(payload)
       match version {
         Some(expected) if tag != expected =>
-          fail("GitHub returned tag \{tag}, expected \{expected}")
+          abort_install(
+            Resolve, "query the GitHub release", api,
+            "GitHub returned tag \{tag}, expected \{expected}",
+            action="check the requested tag, then retry",
+          )
         _ => ()
       }
       let version_for_template = version_from_tag(tag)
@@ -868,6 +1272,7 @@ async fn resolve_package_plan(
         target,
         None,
         options,
+        "github-releases \{pkg.owner}/\{pkg.repo}",
       )
     }
     Mooncakes(pkg) => {
@@ -904,10 +1309,16 @@ async fn resolve_package_plan(
             requested_version,
           )
           let metadata_payload = match
-            fetch_text_using(metadata_url, false, transport) {
+            fetch_text_using(
+              metadata_url, false, "query the Mooncakes registry", transport,
+            ) {
             Some(value) => value
             None =>
-              fail("Mooncakes module release was not found: \{metadata_url}")
+              abort_install(
+                Resolve, "query the Mooncakes registry", metadata_url,
+                "the Mooncakes module release was not found",
+                action="check the module path and version, then retry",
+              )
           }
           let registry_release = resolve_registry_release(
             metadata_payload,
@@ -952,27 +1363,40 @@ async fn resolve_package_plan(
           }
           let preferred_url = github_release_api(owner, repo, Some(preferred))
           let (payload, expected_tag) = match
-            fetch_text_using(preferred_url, true, transport) {
+            fetch_text_using(
+              preferred_url, true, "query the GitHub release", transport,
+            ) {
             Some(payload) => (payload, preferred)
             None => {
               if preferred == value {
-                fail(
-                  "GitHub release was not found for \{pkg.module_path}@\{value}",
+                abort_install(
+                  Resolve, "query the GitHub release", preferred_url,
+                  "no GitHub release was found for \{pkg.module_path}@\{value}",
+                  action="check the coordinate and version, then retry",
                 )
               }
               let fallback_url = github_release_api(owner, repo, Some(value))
-              match fetch_text_using(fallback_url, true, transport) {
+              match
+                fetch_text_using(
+                  fallback_url, true, "query the GitHub release", transport,
+                ) {
                 Some(payload) => (payload, value)
                 None =>
-                  fail(
-                    "GitHub release was not found for \{pkg.module_path}@\{value}",
+                  abort_install(
+                    Resolve, "query the GitHub release", fallback_url,
+                    "no GitHub release was found for \{pkg.module_path}@\{value}",
+                    action="check the coordinate and version, then retry",
                   )
               }
             }
           }
           let actual_tag = release_tag(payload)
           guard actual_tag == expected_tag else {
-            fail("GitHub returned tag \{actual_tag}, expected \{expected_tag}")
+            abort_install(
+              Resolve, "query the GitHub release", preferred_url,
+              "GitHub returned tag \{actual_tag}, expected \{expected_tag}",
+              action="check the requested tag, then retry",
+            )
           }
           resolve_asset_plan_for_release(
             payload,
@@ -985,14 +1409,20 @@ async fn resolve_package_plan(
             target,
             config_set,
             options,
+            "mooncakes+github-releases \{pkg.module_path}/\{pkg.package_path} (repository \{owner}/\{repo})",
           )
         }
         None => {
           let api = github_release_api(owner, repo, None)
-          let payload = match fetch_text_using(api, true, transport) {
+          let payload = match
+            fetch_text_using(api, true, "query the GitHub release", transport) {
             Some(value) => value
             None =>
-              fail("latest GitHub release was not found for \{pkg.module_path}")
+              abort_install(
+                Resolve, "query the GitHub release", api,
+                "no GitHub release was found for \{pkg.module_path}",
+                action="check the coordinate, then retry",
+              )
           }
           let tag = release_tag(payload)
           resolve_asset_plan_for_release(
@@ -1006,6 +1436,7 @@ async fn resolve_package_plan(
             target,
             config_set,
             options,
+            "mooncakes+github-releases \{pkg.module_path}/\{pkg.package_path} (repository \{owner}/\{repo})",
           )
         }
       }
@@ -1022,11 +1453,20 @@ async fn path_kind_no_follow(path : String) -> @fs.FileKind? {
 }
 
 ///|
+/// File kind following symlinks — what a shell's exec resolution sees.
+async fn path_kind(path : String) -> @fs.FileKind? {
+  Some(@fs.kind(path)) catch {
+    @os_error.OSError(_) as err if err.is_ENOENT() => None
+    err => raise err
+  }
+}
+
+///|
 async fn check_destination(path : String, force : Bool) -> Unit {
   match path_kind_no_follow(path) {
     Some(Regular) if force => ()
-    Some(Regular) => fail("already exists: \{path} (use --force to replace)")
-    Some(_) => fail("refusing to replace a non-regular file: \{path}")
+    Some(Regular) => abort_dest("already exists: \{path} (use --force to replace)")
+    Some(_) => abort_dest("refusing to replace a non-regular file: \{path}")
     None => ()
   }
 }
@@ -1036,6 +1476,7 @@ pub struct StagedInstall {
   destination : String
   staging : String
   staging_dir : String
+  binary_digest : String
 }
 
 ///|
@@ -1058,7 +1499,7 @@ async fn create_staging_directory_at(
       err => raise err
     }
   }
-  fail("could not allocate a private staging directory")
+  abort_fs("could not allocate a private staging directory")
 }
 
 ///|
@@ -1956,13 +2397,13 @@ async fn check_library_closure(
     }
     guard missing.is_empty() else {
       let list = missing.join(", ")
-      fail(
+      abort_compat_msg(
         "\{owner} cannot run on this system: unresolved libraries \{list}. Build it from source instead, or pass --skip-compat-check to install anyway.",
       )
     }
     guard unusable.is_empty() else {
       let list = unusable.join(", ")
-      fail(
+      abort_compat_msg(
         "\{owner} cannot run on this system: unusable libraries \{list} (not loadable ELF64 shared objects for this architecture). Build it from source instead, or pass --skip-compat-check to install anyway.",
       )
     }
@@ -1981,7 +2422,7 @@ async fn check_library_closure(
                   ("library \{found}", dirname_of(found), child, rpath_tier),
                 )
               None =>
-                fail(
+                abort_compat_msg(
                   "\{owner} cannot run on this system: library \{found} is not a parseable ELF64 object. Build it from source instead, or pass --skip-compat-check to install anyway.",
                 )
             }
@@ -2001,12 +2442,12 @@ async fn check_library_closure(
       }
       match provider_path {
         None =>
-          fail(
+          abort_compat_msg(
             "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, which cannot be located. Build it from source instead, or pass --skip-compat-check to install anyway.",
           )
         Some(found) =>
           if !elf_file_usable(found, host) {
-            fail(
+            abort_compat_msg(
               "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, but \{found} is not a usable ELF shared object. Build it from source instead, or pass --skip-compat-check to install anyway.",
             )
           } else {
@@ -2019,7 +2460,7 @@ async fn check_library_closure(
               // left to the runtime loader the same way.
               Some(defined) =>
                 if !defined.is_empty() && !defined.contains(version) {
-                  fail(
+                  abort_compat_msg(
                     "\{owner} cannot run on this system: it requires symbol version \{version} from \{provider}, which the installed \{found} does not provide. Build it from source instead, or pass --skip-compat-check to install anyway.",
                   )
                 }
@@ -2092,7 +2533,7 @@ async fn verify_binary_compat(
   // ET_REL object file must not slip through as "unknown format".
   let etype = elf_u16le(binary, 16)
   guard etype == 2 || etype == 3 else {
-    fail(
+    abort_compat_msg(
       "installed binary \{name} cannot run on this system: ELF type \{etype} is not executable. Build it from source instead, or pass --skip-compat-check to install anyway.",
     )
   }
@@ -2102,7 +2543,7 @@ async fn verify_binary_compat(
   let deps = match parse_elf64_deps(binary) {
     Some(value) => value
     None =>
-      fail(
+      abort_compat_msg(
         "installed binary \{name} cannot run on this system: malformed ELF64 program headers. Build it from source instead, or pass --skip-compat-check to install anyway.",
       )
   }
@@ -2116,14 +2557,14 @@ async fn verify_binary_compat(
           @fs.can_execute(interp) &&
           elf_file_usable(interp, host)
         if !usable {
-          fail(
+          abort_compat_msg(
             "installed binary \{name} cannot run on this system: ELF interpreter \{interp} is missing or is not an executable ELF loader for this architecture. Build it from source instead, or pass --skip-compat-check to install anyway.",
           )
         }
       }
     None =>
       if !deps.needed.is_empty() {
-        fail(
+        abort_compat_msg(
           "installed binary \{name} cannot run on this system: it needs shared libraries but has no ELF interpreter. Build it from source instead, or pass --skip-compat-check to install anyway.",
         )
       }
@@ -2161,7 +2602,10 @@ async fn stage_install(
 ) -> StagedInstall {
   let item = plan.install
   let destination = bin_dir + "/" + item.binary
-  check_destination(destination, force)
+  // Replacement eligibility was already decided per-plan; this re-check only
+  // keeps the non-regular/symlink refusal (TOCTOU guard).
+  check_destination(destination, true)
+  ignore(force)
   let archive_path = workspace + "/asset-\{index}"
   download_using(item.asset.url, archive_path, transport)
   verify_digest(archive_path, item.asset.digest)
@@ -2186,12 +2630,155 @@ async fn stage_install(
   @fs.chmod(staging, 0o755)
   verify_binary_compat(staging, binary, skip_compat_check, bin_dir)
   ownership_transferred = true
-  { destination, staging, staging_dir, }
+  { destination, staging, staging_dir, binary_digest: bytes_sha256(binary), }
 }
 
 ///|
 pub async fn install_many(options : BatchOptions) -> Unit {
   install_many_using(options, Https)
+}
+
+///|
+/// The action decided for a resolved plan (issue 0001): skip an identical
+/// install, place a fresh binary, or update a managed one in place.
+priv enum InstallDecision {
+  Skip
+  Install
+  Update(String)
+}
+
+///|
+/// SHA-256 of bytes, in the `sha256:hex` release form.
+fn bytes_sha256(bytes : Bytes) -> String {
+  "sha256:" + @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
+/// SHA-256 of a file's current content, in the `sha256:hex` release form.
+async fn file_sha256(path : String) -> String {
+  bytes_sha256(@fs.read_file(path).binary())
+}
+
+///|
+/// Decide what to do at `destination` for `plan` without writing anything
+/// (issue 0001). An existing regular file is only replaced when it is
+/// provably ours: its stored receipt digest matches its current content and
+/// the package identity matches the new candidate. Identical verified
+/// content always skips; unmanaged or modified content refuses with a
+/// `--force` path; downgrades and incomparable versions refuse the same way.
+async fn decide_install(
+  plan : ResolvedInstallPlan,
+  bin_dir : String,
+  force : Bool,
+) -> InstallDecision {
+  let binary = plan.install.binary
+  let destination = bin_dir + "/" + binary
+  // Do not install anything if receipt metadata points through a symlink.
+  validate_receipt_location(receipt_path(bin_dir, binary))
+  match path_kind_no_follow(destination) {
+    None => Install
+    Some(Regular) => {
+      if force {
+        return Install
+      }
+      let existing_digest = file_sha256(destination)
+      let candidate_digest = plan.install.asset.digest.to_lower()
+      let receipt = read_receipt_file(receipt_path(bin_dir, binary))
+      match receipt {
+        // Managed and unmodified: the stored BINARY digest matches the
+        // file's current content. The asset (archive) digest never
+        // touches the file (issue 0001).
+        Some(stored) if stored.binary_digest == existing_digest => {
+          guard stored.binary == binary &&
+            stored.repository == plan.repository &&
+            stored.package_key == plan.package_key &&
+            stored.target == plan.target &&
+            stored.destination == destination else {
+            abort_install(
+              Destination, "check the destination", destination,
+              "this executable was installed from a different package, target or destination (\{stored.package_key}); refusing to replace it",
+              action="choose another --bin-dir, or pass --force to replace it anyway",
+            )
+          }
+          // Same verified release asset → the extracted binary is the
+          // same too; skip without downloading (works for zip/tar
+          // archives whose bytes differ from the executable).
+          if candidate_digest == stored.asset_digest {
+            return Skip
+          }
+          match semver_compare(plan.install.asset.tag, stored.tag) {
+            Some(1) => Update(stored.tag)
+            Some(0) =>
+              abort_install(
+                Destination, "check the destination", destination,
+                "the candidate has the same version (\{stored.tag}) but different content",
+                action="pass --force to replace it anyway",
+              )
+            Some(_) =>
+              abort_install(
+                Destination, "check the destination", destination,
+                "the candidate (\{plan.install.asset.tag}) is older than the installed version (\{stored.tag}); refusing to downgrade",
+                action="pass --force to downgrade anyway",
+              )
+            None =>
+              abort_install(
+                Destination, "check the destination", destination,
+                "cannot compare versions (\{stored.tag} -> \{plan.install.asset.tag}); refusing to guess",
+                action="pass --force to replace it anyway",
+              )
+          }
+        }
+        Some(_) =>
+          abort_install(
+            Destination, "check the destination", destination,
+            "the installed binary was modified after install; refusing to guess its provenance",
+            action="pass --force to replace it anyway",
+          )
+        None =>
+          if candidate_digest == existing_digest {
+            Skip
+          } else {
+            abort_install(
+              Destination, "check the destination", destination,
+              "an existing executable not installed by moon-binstall is in the way",
+              action="inspect it and pass --force to replace it, or choose another --bin-dir",
+            )
+          }
+      }
+    }
+    Some(_) =>
+      abort_install(
+        Destination, "check the destination", destination,
+        "refusing to replace a non-regular file",
+        action="remove it or choose another --bin-dir",
+      )
+  }
+}
+
+///|
+/// Record the install receipt for a successfully placed binary: the
+/// asset digest identifies the release, the binary digest identifies
+/// the installed file (issue 0001).
+async fn record_install_receipt(
+  plan : ResolvedInstallPlan,
+  coordinate : String,
+  bin_dir : String,
+  binary_digest : String,
+) -> Unit {
+  write_receipt(
+    InstallReceipt::{
+      coordinate,
+      source: plan.source_label,
+      repository: plan.repository,
+      package_key: plan.package_key,
+      binary: plan.install.binary,
+      target: plan.target,
+      tag: plan.install.asset.tag,
+      asset_digest: plan.install.asset.digest.to_lower(),
+      binary_digest,
+      destination: bin_dir + "/" + plan.install.binary,
+    },
+  )
 }
 
 ///|
@@ -2279,12 +2866,12 @@ async fn check_declared_glibc(
   guard host == target_machine else { return }
   match host_libc() {
     Some("musl") =>
-      fail(
+      abort_compat_msg(
         "installed binary \{binary} requires glibc >= \{min} but this system uses musl libc. Build it from source instead, or pass --skip-compat-check to install anyway.",
       )
     Some(version) =>
       if version_lt(version, min) {
-        fail(
+        abort_compat_msg(
           "installed binary \{binary} requires glibc >= \{min} but this system has glibc \{version}. Build it from source instead, or pass --skip-compat-check to install anyway.",
         )
       }
@@ -2313,25 +2900,61 @@ async fn install_many_using(
       workspace,
       i,
       transport,
-    )
+    ) catch {
+      // Batch installs name the coordinate whose stage failed (issue 0003).
+      InstallError(stage~, what~, target~, reason~, action~) =>
+        raise InstallError(
+          stage~,
+          what~,
+          target~,
+          reason="\{describe_coordinate(options.coordinates[i])}: \{reason}",
+          action~,
+        )
+      err => raise err
+    }
     // Safe binary names are ASCII, so lowercase keys are portable. Apply the
     // check everywhere because default macOS filesystems are case-insensitive.
     let binary_key = item.install.binary.to_lower()
     guard !binary_names.contains(binary_key) else {
-      fail(
+      abort_resolve(
         "multiple packages resolve to the same executable name (case-insensitive): \{item.install.binary}",
       )
     }
     binary_names.push(binary_key)
     resolved.push(item)
-    println("Resolved \{item.install.asset.tag}: \{item.install.asset.name}")
+    println(
+      "Resolved \{describe_coordinate(options.coordinates[i])}: source=\{item.source_label} tag=\{item.install.asset.tag} asset=\{item.install.asset.name} binary=\{item.install.binary} target=\{item.target}",
+    )
   }
-  let bin_dir = target_directory(options.directory)
+  // Self-update without an explicit destination targets the running
+  // executable's directory (issue 0004); otherwise --bin-dir >
+  // MOON_BINSTALL_DIR > $HOME/.local/bin, and the winning source is shown.
+  let (bin_dir, dir_source) = if resolved.length() == 1 &&
+    is_self_update(resolved[0]) &&
+    options.directory is None &&
+    @env.get_env_var("MOON_BINSTALL_DIR") is None {
+    (self_update_bin_dir(resolved[0]), "running executable (self-update)")
+  } else {
+    target_directory_with_source(options.directory)
+  }
+  // Validate every replacement before the first write (issue 0001): a batch
+  // never installs some items and then refuses a later one.
+  let decisions : Array[InstallDecision] = []
+  for i = 0; i < resolved.length(); i = i + 1 {
+    decisions.push(decide_install(resolved[i], bin_dir, options.force))
+  }
   if options.dry_run {
-    for plan in resolved {
-      let item = plan.install
-      println("Would install \{item.asset.url} -> \{bin_dir}/\{item.binary}")
+    for i = 0; i < resolved.length(); i = i + 1 {
+      let item = resolved[i].install
+      let verb = match decisions[i] {
+        Skip => "skip (already installed)"
+        Install => "install"
+        Update(old) => "update (replaces \{old})"
+      }
+      println("Would \{verb} \{item.asset.url} -> \{bin_dir}/\{item.binary}")
     }
+    println("Destination: \{bin_dir} (\{dir_source})")
+    report_path_diagnostics(bin_dir, resolved)
     return
   }
   @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
@@ -2343,10 +2966,8 @@ async fn install_many_using(
       options.skip_compat_check,
     )
   }
-  for plan in resolved {
-    check_destination(bin_dir + "/" + plan.install.binary, options.force)
-  }
   let staged : Array[StagedInstall] = []
+  let staged_index : Array[Int] = []
   let pending : Array[Bool] = []
   defer (for i = 0; i < staged.length(); i = i + 1 {
     if pending[i] {
@@ -2359,6 +2980,10 @@ async fn install_many_using(
     }
   })
   for i = 0; i < resolved.length(); i = i + 1 {
+    // An identical verified binary is never downloaded again (issue 0001).
+    if decisions[i] is Skip {
+      continue
+    }
     let item = stage_install(
       resolved[i],
       bin_dir,
@@ -2367,18 +2992,134 @@ async fn install_many_using(
       options.force,
       options.skip_compat_check,
       transport,
-    )
+    ) catch {
+      InstallError(stage~, what~, target~, reason~, action~) =>
+        raise InstallError(
+          stage~,
+          what~,
+          target~,
+          reason="\{describe_coordinate(options.coordinates[i])}: \{reason}",
+          action~,
+        )
+      err => raise err
+    }
     staged.push(item)
+    staged_index.push(i)
     pending.push(true)
   }
   for i = 0; i < staged.length(); i = i + 1 {
     let item = staged[i]
-    @fs.rename(item.staging, item.destination, replace=options.force)
+    @fs.rename(item.staging, item.destination, replace=true)
     pending[i] = false
     @fs.rmdir(item.staging_dir, recursive=true) catch {
       _ => ()
     }
-    println("Installed \{item.destination}")
+    let plan_index = staged_index[i]
+    record_install_receipt(
+      resolved[plan_index],
+      describe_coordinate(options.coordinates[plan_index]),
+      bin_dir,
+      item.binary_digest,
+    )
+    let tag = resolved[plan_index].install.asset.tag
+    match decisions[plan_index] {
+      Update(old) =>
+        println("Updated \{item.destination} (\{old} -> \{tag})")
+      _ => println("Installed \{item.destination} (\{tag})")
+    }
+  }
+  // Skipped items keep their verified content; an old unmanaged file gains a
+  // receipt now so the next run recognizes it as managed (issue 0001).
+  for i = 0; i < resolved.length(); i = i + 1 {
+    if decisions[i] is Skip {
+      let item = resolved[i].install
+      println("Already installed \{bin_dir}/\{item.binary} (\{item.asset.tag})")
+      if read_receipt_file(receipt_path(bin_dir, item.binary)) is None {
+        record_install_receipt(
+          resolved[i],
+          describe_coordinate(options.coordinates[i]),
+          bin_dir,
+          file_sha256(bin_dir + "/" + item.binary),
+        )
+      }
+    }
+  }
+  println("Destination: \{bin_dir} (\{dir_source})")
+  report_path_diagnostics(bin_dir, resolved)
+}
+
+///|
+/// Where a bare `name` resolves for a shell user, in PATH order. Unlike
+/// the self-update lookup, this mirrors what exec actually does: empty
+/// and relative PATH entries resolve against the current working
+/// directory, symlinks are followed to regular files, and the candidate
+/// must carry an executable bit — no file is ever invoked.
+async fn path_resolved_candidates(name : String) -> Array[String] {
+  let found : Array[String] = []
+  let raw = match @env.get_env_var("PATH") {
+    Some(value) => value
+    None => ""
+  }
+  let cwd = @env.current_dir()
+  for entry in raw.split(":") {
+    let text = entry.to_owned()
+    let dir = if text.has_prefix("/") {
+      text
+    } else {
+      match cwd {
+        Some(cwd_dir) =>
+          if text == "" {
+            cwd_dir
+          } else {
+            cwd_dir + "/" + text
+          }
+        None => continue
+      }
+    }
+    let candidate = dir + "/" + name
+    match path_kind(candidate) {
+      Some(Regular) => if @fs.can_execute(candidate) { found.push(candidate) }
+      _ => ()
+    }
+  }
+  found
+}
+
+///|
+/// Show how PATH resolves each installed binary (issue 0004): the first
+/// PATH hit is the next executable a bare name runs. A shadowed or absent
+/// destination is a stderr warning — the install still succeeded. Only
+/// filesystem lookups are used; no executable is ever invoked.
+async fn report_path_diagnostics(
+  bin_dir : String,
+  resolved : Array[ResolvedInstallPlan],
+) -> Unit {
+  let seen : Array[String] = []
+  for plan in resolved {
+    let name = plan.install.binary
+    if seen.contains(name) {
+      continue
+    }
+    seen.push(name)
+    let destination = bin_dir + "/" + name
+    let candidates = path_resolved_candidates(name)
+    if candidates.length() == 0 {
+      eprintln(
+        "moon-binstall: note: '\{name}' is not on PATH (installed at '\{destination}')",
+      )
+      eprintln(
+        "moon-binstall: hint: add '\{bin_dir}' to PATH, then check 'command -v \{name}' or 'type -a \{name}'",
+      )
+    } else if candidates[0] != destination {
+      eprintln(
+        "moon-binstall: note: '\{name}' on PATH resolves to '\{candidates[0]}', which shadows the new install at '\{destination}'",
+      )
+      eprintln(
+        "moon-binstall: hint: check with 'command -v \{name}' or 'type -a \{name}'",
+      )
+    } else {
+      println("PATH resolves '\{name}' to '\{destination}'")
+    }
   }
 }
 
@@ -2410,9 +3151,9 @@ pub async fn install_from_asset_file(
   bin_dir : String,
   force : Bool,
 ) -> Unit {
-  guard safe_binary_name(binary) else { fail("unsafe executable name") }
+  guard safe_binary_name(binary) else { abort_args("unsafe executable name") }
   guard bin_dir.has_prefix("/") else {
-    fail("--bin-dir must be an absolute path")
+    abort_args("--bin-dir must be an absolute path")
   }
   @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
   let destination = bin_dir + "/" + binary

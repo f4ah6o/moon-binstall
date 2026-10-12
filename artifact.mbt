@@ -53,24 +53,42 @@ fn parse_artifact_config_set(
   let document = @json.parse(payload)
   let entries = match document {
     { "packages": Array(values), .. } => values
-    _ => fail("invalid moon-binstall.json: expected a packages array")
+    _ =>
+      abort_install(
+        Resolve, "read moon-binstall.json", "",
+        "invalid moon-binstall.json: expected a packages array",
+      )
   }
   let mut found : ArtifactConfigSet? = None
   for entry in entries {
     let fields = match entry {
       Object(value) => value
-      _ => fail("invalid package entry in moon-binstall.json")
+      _ =>
+        abort_install(
+          Resolve, "read moon-binstall.json", "",
+          "invalid package entry in moon-binstall.json",
+        )
     }
     let name = match fields.get("package") {
       Some(String(value)) => value
-      _ => fail("invalid package entry in moon-binstall.json: missing package")
+      _ =>
+        abort_install(
+          Resolve, "read moon-binstall.json", "",
+          "invalid package entry in moon-binstall.json: missing package",
+        )
     }
     guard valid_package_path(name) else {
-      fail("unsafe package path in moon-binstall.json")
+      abort_install(
+        Resolve, "read moon-binstall.json", name,
+        "unsafe package path in moon-binstall.json",
+      )
     }
     if name == package_path {
       if found is Some(_) {
-        fail("duplicate package entry: \{package_path}")
+        abort_install(
+          Resolve, "read moon-binstall.json", package_path,
+          "duplicate package entry in moon-binstall.json",
+        )
       }
       validate_metadata_keys(
         fields,
@@ -87,7 +105,10 @@ fn parse_artifact_config_set(
       let glibc_min = optional_string_field(fields, "glibc-min")
       validate_config_fields(pkg_url, pkg_fmt, bin_path, glibc_min)
       guard safe_binary_name(binary) else {
-        fail("unsafe binary name in moon-binstall.json")
+        abort_install(
+          Resolve, "read moon-binstall.json", binary,
+          "unsafe binary name in moon-binstall.json",
+        )
       }
       let overrides = parse_target_overrides(fields.get("overrides"))
       found = Some({
@@ -107,7 +128,11 @@ fn optional_string_field(
   match fields.get(key) {
     None => None
     Some(String(value)) => Some(value)
-    Some(_) => fail("invalid \{key} in moon-binstall.json: expected a string")
+    Some(_) =>
+      abort_install(
+        Resolve, "read moon-binstall.json", key,
+        "invalid \{key} in moon-binstall.json: expected a string",
+      )
   }
 }
 
@@ -123,7 +148,11 @@ fn parse_target_overrides(
         validate_target(target)
         let fields = match raw_config {
           Object(value) => value
-          _ => fail("invalid override for target \{target}: expected an object")
+          _ =>
+            abort_install(
+              Resolve, "read moon-binstall.json", target,
+              "invalid override for target: expected an object",
+            )
         }
         validate_metadata_keys(
           fields,
@@ -136,12 +165,19 @@ fn parse_target_overrides(
         let glibc_min = optional_string_field(fields, "glibc-min")
         guard pkg_url is Some(_) || pkg_fmt is Some(_) || bin_path is Some(_) ||
           glibc_min is Some(_) else {
-          fail("empty override for target \{target}")
+          abort_install(
+            Resolve, "read moon-binstall.json", target,
+            "empty override for the target",
+          )
         }
         validate_config_fields(pkg_url, pkg_fmt, bin_path, glibc_min)
         overrides.push((target, { pkg_url, pkg_fmt, bin_path, glibc_min, }))
       }
-    Some(_) => fail("invalid overrides in moon-binstall.json: expected an object")
+    Some(_) =>
+      abort_install(
+        Resolve, "read moon-binstall.json", "overrides",
+        "invalid overrides in moon-binstall.json: expected an object",
+      )
   }
   overrides
 }
@@ -154,7 +190,10 @@ fn validate_metadata_keys(
 ) -> Unit raise {
   for (key, _) in fields.iter() {
     guard allowed.contains(key) else {
-      fail("unsupported field in moon-binstall.json \{context}: \{key}")
+      abort_install(
+        Resolve, "read moon-binstall.json", key,
+        "unsupported field in moon-binstall.json \{context}",
+      )
     }
   }
 }
@@ -186,7 +225,12 @@ fn validate_config_fields(
   }
   match pkg_url {
     Some(template) => {
-      guard template != "" else { fail("empty pkg-url in moon-binstall.json") }
+      guard template != "" else {
+        abort_install(
+          Resolve, "read moon-binstall.json", "pkg-url",
+          "empty pkg-url in moon-binstall.json",
+        )
+      }
       validate_artifact_template(template)
     }
     None => ()
@@ -209,15 +253,24 @@ fn validate_config_fields(
 fn validate_glibc_version(version : String) -> Unit raise {
   let parts = version.split(".").collect()
   guard parts.length() >= 2 else {
-    fail("invalid glibc-min in moon-binstall.json: \{version}")
+    abort_install(
+      Resolve, "read moon-binstall.json", version,
+      "invalid glibc-min in moon-binstall.json",
+    )
   }
   for part in parts {
     guard part != "" else {
-      fail("invalid glibc-min in moon-binstall.json: \{version}")
+      abort_install(
+        Resolve, "read moon-binstall.json", version,
+        "invalid glibc-min in moon-binstall.json",
+      )
     }
     for c in part {
       guard c >= '0' && c <= '9' else {
-        fail("invalid glibc-min in moon-binstall.json: \{version}")
+        abort_install(
+          Resolve, "read moon-binstall.json", version,
+          "invalid glibc-min in moon-binstall.json",
+        )
       }
     }
   }
@@ -292,7 +345,10 @@ pub fn manifest_repository(
       guard parts.length() == 2 &&
         valid_id(parts[0].to_owned()) &&
         valid_id(parts[1].to_owned()) else {
-        fail("manifest needs a valid repository")
+        abort_install(
+          Resolve, "read moon-binstall.json", module_path,
+          "the manifest needs a valid repository",
+        )
       }
       "https://github.com/\{parts[0]}/\{parts[1]}"
     }
@@ -307,7 +363,10 @@ pub fn manifest_version(payload : String) -> String? raise {
   match document {
     { "version": String(value), .. } => {
       guard valid_registry_version(value) else {
-        fail("unsafe version in moon-binstall.json")
+        abort_install(
+          Resolve, "read moon-binstall.json", value,
+          "unsafe version in moon-binstall.json",
+        )
       }
       Some(value)
     }
@@ -402,7 +461,11 @@ fn target_template_facts(target : String) -> (String, String, String) raise {
     "linux-aarch64" => ("linux", "linux", "aarch64")
     "darwin-x86_64" => ("darwin", "macos", "x86_64")
     "darwin-aarch64" => ("darwin", "macos", "aarch64")
-    _ => fail("unsupported target in artifact template: \{target}")
+    _ =>
+      abort_install(
+        Resolve, "expand artifact template", target,
+        "unsupported target in artifact template",
+      )
   }
 }
 
@@ -434,23 +497,35 @@ pub fn validate_artifact_template(template : String) -> Unit raise {
       let variable = StringBuilder()
       while index < chars.length() && chars[index] != '}' {
         guard chars[index] != '{' else {
-          fail("nested opening brace in artifact template")
+          abort_install(
+            Resolve, "expand artifact template", template,
+            "nested opening brace in artifact template",
+          )
         }
         variable.write_char(chars[index])
         index = index + 1
       }
       guard index < chars.length() else {
-        fail("unclosed variable in artifact template")
+        abort_install(
+          Resolve, "expand artifact template", template,
+          "unclosed variable in artifact template",
+        )
       }
       let key = variable.to_string().trim().to_owned()
       guard known.contains(key) else {
-        fail("unsupported variable in artifact template: \{key}")
+        abort_install(
+          Resolve, "expand artifact template", key,
+          "unsupported variable in artifact template",
+        )
       }
       index = index + 1
       continue
     }
     if current == '}' {
-      fail("unmatched closing brace in artifact template")
+      abort_install(
+        Resolve, "expand artifact template", template,
+        "unmatched closing brace in artifact template",
+      )
     }
     index = index + 1
   }
@@ -482,13 +557,19 @@ fn expand_template(
       let variable = StringBuilder()
       while index < chars.length() && chars[index] != '}' {
         guard chars[index] != '{' else {
-          fail("nested opening brace in artifact template")
+          abort_install(
+            Resolve, "expand artifact template", template,
+            "nested opening brace in artifact template",
+          )
         }
         variable.write_char(chars[index])
         index = index + 1
       }
       guard index < chars.length() else {
-        fail("unclosed variable in artifact template")
+        abort_install(
+          Resolve, "expand artifact template", template,
+          "unclosed variable in artifact template",
+        )
       }
       let key = variable.to_string().trim().to_owned()
       let mut resolved : String? = None
@@ -505,14 +586,21 @@ fn expand_template(
       }
       let value = match resolved {
         Some(value) => value
-        None => fail("unsupported variable in artifact template: \{key}")
+        None =>
+          abort_install(
+            Resolve, "expand artifact template", key,
+            "unsupported variable in artifact template",
+          )
       }
       result.write_string(value)
       index = index + 1
       continue
     }
     if current == '}' {
-      fail("unmatched closing brace in artifact template")
+      abort_install(
+        Resolve, "expand artifact template", template,
+        "unmatched closing brace in artifact template",
+      )
     }
     result.write_char(current)
     index = index + 1
@@ -529,13 +617,17 @@ pub fn artifact_url_asset_name(
 ) -> String raise {
   let prefix = "https://github.com/\{owner}/\{repo}/releases/download/\{tag}/"
   guard url.has_prefix(prefix) else {
-    fail(
+    abort_install(
+      Resolve, "expand artifact template", url,
       "pkg-url must resolve to a GitHub release asset in the module repository",
     )
   }
   let name = url[prefix.length():].to_owned()
   guard valid_asset_name(name) else {
-    fail("unsafe release asset name in pkg-url")
+    abort_install(
+      Resolve, "expand artifact template", name,
+      "unsafe release asset name in pkg-url",
+    )
   }
   name
 }
@@ -584,7 +676,10 @@ pub fn archive_suffix(format : String) -> String raise {
     "tzstd" | "tar.zst" => ".tar.zst"
     "tar.zstd" => ".tar.zstd"
     "zip" => ".zip"
-    _ => fail("unsupported archive format")
+    _ =>
+      abort_install(
+        Archive, "read archive", format, "unsupported archive format",
+      )
   }
 }
 
@@ -602,8 +697,9 @@ pub fn validate_archive_format(format : String) -> Unit raise {
     format == "tar.zst" ||
     format == "tar.zstd" ||
     format == "zip" else {
-    fail(
-      "unsupported package format: \{format} (supported: bin, tar, tgz, tar.gz, tbz2, tar.bz2, txz, tar.xz, tzstd, tar.zst, zip)",
+    abort_install(
+      Archive, "read archive", format,
+      "unsupported package format (supported: bin, tar, tgz, tar.gz, tbz2, tar.bz2, txz, tar.xz, tzstd, tar.zst, zip)",
     )
   }
 }
@@ -634,17 +730,26 @@ pub fn validate_member_path(path : String) -> Unit raise {
     !path.has_prefix("/") &&
     !path.has_prefix("-") &&
     !path.contains("\\") else {
-    fail("unsafe archive member path")
+    abort_install(
+      Archive, "validate archive member path", path,
+      "unsafe archive member path",
+    )
   }
   let parts = path.split("/").collect()
   for part in parts {
     guard part != "" && part != "." && part != ".." &&
       !part.has_prefix("-") else {
-      fail("unsafe archive member path")
+      abort_install(
+        Archive, "validate archive member path", path,
+        "unsafe archive member path",
+      )
     }
     for c in part {
       guard c != '\n' && c != '\r' && c != '\t' else {
-        fail("unsafe archive member path")
+        abort_install(
+          Archive, "validate archive member path", path,
+          "unsafe archive member path",
+        )
       }
     }
   }
@@ -739,7 +844,10 @@ pub fn default_archive_member_candidates(
   guard safe_binary_name(binary) && valid_id(module_name) &&
     valid_package_path(package_path) &&
     (valid_registry_version(version) || valid_tag(version)) else {
-    fail("unsafe values for archive member discovery")
+    abort_install(
+      Archive, "discover archive member", package_path,
+      "unsafe values for archive member discovery",
+    )
   }
   let candidates : Array[String] = [binary]
   let versions = [version, "v" + version]
