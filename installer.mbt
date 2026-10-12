@@ -2673,6 +2673,8 @@ async fn decide_install(
 ) -> InstallDecision {
   let binary = plan.install.binary
   let destination = bin_dir + "/" + binary
+  // Do not install anything if receipt metadata points through a symlink.
+  validate_receipt_location(receipt_path(bin_dir, binary))
   match path_kind_no_follow(destination) {
     None => Install
     Some(Regular) => {
@@ -2689,10 +2691,12 @@ async fn decide_install(
         Some(stored) if stored.binary_digest == existing_digest => {
           guard stored.binary == binary &&
             stored.repository == plan.repository &&
-            stored.package_key == plan.package_key else {
+            stored.package_key == plan.package_key &&
+            stored.target == plan.target &&
+            stored.destination == destination else {
             abort_install(
               Destination, "check the destination", destination,
-              "this executable was installed from a different package (\{stored.package_key}); refusing to replace it",
+              "this executable was installed from a different package, target or destination (\{stored.package_key}); refusing to replace it",
               action="choose another --bin-dir, or pass --force to replace it anyway",
             )
           }
