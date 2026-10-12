@@ -28,12 +28,52 @@ pub fn receipt_path(bin_dir : String, binary : String) -> String {
 }
 
 ///|
+/// Refuse to trust receipt paths that traverse a symlinked metadata directory
+/// or use a non-regular receipt entry. This is checked again immediately
+/// before a rename, not just during the install decision.
+async fn validate_receipt_location(path : String) -> Unit {
+  let dir = parent_dir(path)
+  match path_kind_no_follow(dir) {
+    Some(Directory) | None => ()
+    Some(_) =>
+      abort_install(
+        Filesystem, "check the receipt directory", dir,
+        "receipt directory is not a real directory (symlinks are not allowed)",
+        action="remove the unsafe receipt directory and retry",
+      )
+  }
+  match path_kind_no_follow(path) {
+    Some(Regular) | None => ()
+    Some(_) =>
+      abort_install(
+        Filesystem, "check the receipt file", path,
+        "receipt entry is not a regular file (symlinks are not allowed)",
+        action="remove the unsafe receipt entry and retry",
+      )
+  }
+}
+
+///|
+/// Create a private receipt directory and write a new regular file before
+/// atomically renaming it. Do not open an existing receipt for truncation:
+/// that would follow a malicious symlink and overwrite its target.
 async fn write_receipt(receipt : InstallReceipt) -> Unit {
   let path = receipt_path(
     parent_dir(receipt.destination),
     receipt.binary,
   )
-  @fs.mkdir(parent_dir(path), recursive=true, allow_exist=true)
+  validate_receipt_location(path)
+  let dir = parent_dir(path)
+  match path_kind_no_follow(dir) {
+    Some(Directory) => ()
+    None => @fs.mkdir(dir, permission=0o700, allow_exist=false)
+    Some(_) =>
+      abort_install(
+        Filesystem, "check the receipt directory", dir,
+        "receipt directory must not be a symlink or non-directory",
+      )
+  }
+  validate_receipt_location(path)
   let json : Json = {
     "version": 1,
     "coordinate": receipt.coordinate,
@@ -47,11 +87,17 @@ async fn write_receipt(receipt : InstallReceipt) -> Unit {
     "binary_digest": receipt.binary_digest,
     "destination": receipt.destination,
   }
+  let staging_dir = create_staging_directory_at(dir, 0, "receipt")
+  defer (@fs.rmdir(staging_dir, recursive=true) catch { _ => () })
+  let staging = staging_dir + "/" + receipt.binary + ".json"
   @fs.write_file(
-    path,
+    staging,
     json.stringify() + "\n",
-    create_mode=CreateOrTruncate,
+    create_mode=CreateNew,
+    permission=0o600,
   )
+  validate_receipt_location(path)
+  @fs.rename(staging, path, replace=true)
 }
 
 ///|
@@ -73,6 +119,13 @@ fn parent_dir(path : String) -> String {
 /// malformed. Malformed receipts are treated like missing ones so a bad
 /// file can never silently authorize an update.
 async fn read_receipt_file(path : String) -> InstallReceipt? {
+  // Do not read receipts through symlinks even if the link target is valid JSON.
+  guard path_kind_no_follow(parent_dir(path)) is Some(Directory) else {
+    return None
+  }
+  guard path_kind_no_follow(path) is Some(Regular) else {
+    return None
+  }
   let text = @fs.read_file(path).text() catch { _ => return None }
   let json = @json.parse(text) catch { _ => return None }
   match json {
