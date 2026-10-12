@@ -3303,3 +3303,225 @@ async test "PATH diagnostics resolve symlinks and cwd-relative entries" {
   let cwd_hits = path_resolved_candidates("nope")
   assert_eq(cwd_hits.length(), 0)
 }
+
+///|
+/// What: create a real distribution payload so its release digest hashes the
+/// raw bytes, ZIP container, or TGZ container rather than a synthetic value.
+async fn make_github_format_transport(
+  root : String,
+  tag : String,
+  version : String,
+  content : String,
+  format : String,
+) -> FixtureTransport {
+  let suffix = archive_suffix(format)
+  let asset_name = "tool-linux-x86_64" + suffix
+  let asset_path = root + "/tool-" + version + suffix
+  match format {
+    "bin" => @fs.write_file(asset_path, content)
+    "zip" => create_fixture_zip(asset_path, "tool", content)
+    "tgz" =>
+      create_fixture_tar(root + "/source-" + version, asset_path, content, "tool")
+    _ => abort("unhandled lifecycle fixture format")
+  }
+  let digest = fixture_digest(asset_path)
+  let asset_url = "https://github.com/acme/tool/releases/download/\{tag}/\{asset_name}"
+  let api = "https://api.github.com/repos/acme/tool/releases/tags/\{tag}"
+  let release = "{\"tag_name\":\"\{tag}\",\"assets\":[{\"name\":\"\{asset_name}\",\"browser_download_url\":\"\{asset_url}\",\"digest\":\"\{digest}\"}]}"
+  {
+    responses: [(api, release)],
+    files: [(asset_url, asset_path)],
+    failures: [],
+  }
+}
+
+///|
+/// What: exercise read-only planning separately from normal installs.
+fn github_dry_options(bin_dir : String, tag : String) -> BatchOptions raise {
+  parse_batch_options([
+    "acme/tool@\{tag}", "--target", "linux-x86_64", "--bin-dir", bin_dir,
+    "--dry-run",
+  ])
+}
+
+///|
+/// What: for all three formats, verify initial dry-run, initial install,
+/// metadata-only no-download reinstall, dry-run skip/update, managed update,
+/// and refusal of tampered binary content both normally and in dry-run.
+async test "raw ZIP and TGZ digest lifecycle and dry-run regression matrix" {
+  for format in ["bin", "zip", "tgz"] {
+    let root = @fs.tmpdir(prefix="moon-binstall-digest-\{format}")
+    defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+    let bin_dir = root + "/bin"
+    let destination = bin_dir + "/tool"
+    let receipt_file = receipt_path(bin_dir, "tool")
+    let old_release = make_github_format_transport(
+      root, "v1.2.3", "1.2.3", "original-\{format}\n", format,
+    )
+    let new_release = make_github_format_transport(
+      root, "v1.2.4", "1.2.4", "updated-\{format}\n", format,
+    )
+    // What: the initial plan must not install anything or create a receipt.
+    install_many_using(
+      github_dry_options(bin_dir, "v1.2.3"),
+      Fixture(FixtureTransport::{
+        responses: old_release.responses, files: [], failures: [],
+      }),
+    )
+    assert_true(!@fs.exists(destination))
+    assert_true(!@fs.exists(receipt_file))
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(old_release),
+    )
+    assert_eq(@fs.read_file(destination).text(), "original-\{format}\n")
+    let receipt = match read_receipt_file(receipt_file) {
+      Some(value) => value
+      None => abort("missing initial lifecycle receipt")
+    }
+    assert_eq(receipt.binary_digest, file_sha256(destination))
+    if format == "bin" {
+      assert_eq(receipt.asset_digest, receipt.binary_digest)
+    } else {
+      assert_true(receipt.asset_digest != receipt.binary_digest)
+    }
+    let first_receipt_bytes = @fs.read_file(receipt_file).text()
+    // What: an identical reinstall and its dry-run have no asset download.
+    let old_metadata_only = FixtureTransport::{
+      responses: old_release.responses,
+      files: [],
+      failures: [],
+    }
+    install_many_using(
+      github_dry_options(bin_dir, "v1.2.3"),
+      Fixture(old_metadata_only),
+    )
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(old_metadata_only),
+    )
+    assert_eq(@fs.read_file(receipt_file).text(), first_receipt_bytes)
+    assert_eq(@fs.read_file(destination).text(), "original-\{format}\n")
+    // What: planning an update also leaves the old binary and receipt alone.
+    install_many_using(
+      github_dry_options(bin_dir, "v1.2.4"),
+      Fixture(FixtureTransport::{
+        responses: new_release.responses, files: [], failures: [],
+      }),
+    )
+    assert_eq(@fs.read_file(receipt_file).text(), first_receipt_bytes)
+    assert_eq(@fs.read_file(destination).text(), "original-\{format}\n")
+    install_many_using(
+      github_options(bin_dir, "v1.2.4", false),
+      Fixture(new_release),
+    )
+    assert_eq(@fs.read_file(destination).text(), "updated-\{format}\n")
+    let updated_receipt = match read_receipt_file(receipt_file) {
+      Some(value) => value
+      None => abort("missing updated lifecycle receipt")
+    }
+    assert_eq(updated_receipt.tag, "v1.2.4")
+    assert_eq(updated_receipt.binary_digest, file_sha256(destination))
+    @fs.write_file(destination, "tampered-\{format}\n")
+    let rejected = try {
+      install_many_using(
+        github_options(bin_dir, "v1.2.4", false),
+        Fixture(FixtureTransport::{
+          responses: new_release.responses, files: [], failures: [],
+        }),
+      )
+      false
+    } catch {
+      InstallError(stage=Destination, reason~, ..) =>
+        reason.contains("modified after install")
+      _ => false
+    }
+    assert_true(rejected)
+    let dry_rejected = try {
+      install_many_using(
+        github_dry_options(bin_dir, "v1.2.4"),
+        Fixture(FixtureTransport::{
+          responses: new_release.responses, files: [], failures: [],
+        }),
+      )
+      false
+    } catch {
+      InstallError(stage=Destination, reason~, ..) =>
+        reason.contains("modified after install")
+      _ => false
+    }
+    assert_true(dry_rejected)
+    assert_eq(@fs.read_file(destination).text(), "tampered-\{format}\n")
+    assert_eq(updated_receipt.binary_digest, (
+      match read_receipt_file(receipt_file) {
+        Some(value) => value.binary_digest
+        None => abort("tampering removed the receipt")
+      }
+    ))
+  }
+}
+
+///|
+/// What: a symlinked receipt entry must not be read as a trusted receipt,
+/// and an install must not overwrite its target or install a binary.
+async test "symlinked receipt file is rejected without touching the target" {
+  let root = @fs.tmpdir(prefix="moon-binstall-receipt-file-link")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  let receipts = bin_dir + "/.moon-binstall-receipts"
+  @fs.mkdir(receipts, recursive=true)
+  let victim = root + "/victim.json"
+  @fs.write_file(victim, "victim-unchanged\n")
+  let link = receipt_path(bin_dir, "tool")
+  @fs.symlink(target=victim, link)
+  assert_true(read_receipt_file(link) is None)
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(make_github_format_transport(
+        root, "v1.2.3", "1.2.3", "new\n", "bin",
+      )),
+    )
+    false
+  } catch {
+    InstallError(stage=Filesystem, reason~, ..) =>
+      reason.contains("receipt entry")
+    _ => false
+  }
+  assert_true(rejected)
+  assert_eq(@fs.read_file(victim).text(), "victim-unchanged\n")
+  assert_true(!@fs.exists(bin_dir + "/tool"))
+}
+
+///|
+/// What: a symlinked receipt directory must not be read or written through
+/// even when its target is an existing directory.
+async test "symlinked receipt directory is rejected before installation" {
+  let root = @fs.tmpdir(prefix="moon-binstall-receipt-dir-link")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let bin_dir = root + "/bin"
+  let outside = root + "/outside"
+  @fs.mkdir(bin_dir)
+  @fs.mkdir(outside)
+  let victim = outside + "/tool.json"
+  @fs.write_file(victim, "victim-unchanged\n")
+  let receipt_dir = bin_dir + "/.moon-binstall-receipts"
+  @fs.symlink(target=outside, receipt_dir)
+  assert_true(read_receipt_file(receipt_path(bin_dir, "tool")) is None)
+  let rejected = try {
+    install_many_using(
+      github_options(bin_dir, "v1.2.3", false),
+      Fixture(make_github_format_transport(
+        root, "v1.2.3", "1.2.3", "new\n", "bin",
+      )),
+    )
+    false
+  } catch {
+    InstallError(stage=Filesystem, reason~, ..) =>
+      reason.contains("receipt directory")
+    _ => false
+  }
+  assert_true(rejected)
+  assert_eq(@fs.read_file(victim).text(), "victim-unchanged\n")
+  assert_true(!@fs.exists(bin_dir + "/tool"))
+}
