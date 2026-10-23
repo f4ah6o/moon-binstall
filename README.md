@@ -38,11 +38,14 @@ Requires MoonBit, `curl`, and Linux or macOS:
 
 ```sh
 moon update
-moon install
 moon test --target native
 moon build --release --target native
 moon run . --target native -- --help
 ```
+
+`moon test`, `moon build`, and `moon package` resolve project dependencies
+automatically. `moon update` refreshes the registry index; `moon install <package>`
+is for installing a CLI, not for fetching this project's dependencies.
 
 The generated executable is `_build/native/release/build/moon-binstall.exe`
 (the exact output path can vary with toolchain versions).
@@ -57,7 +60,6 @@ To build and bootstrap from source:
 
 ```sh
 moon update
-moon install
 moon build --target native --release
 
 mkdir -p "${MOON_HOME:-$HOME/.moon}/bin"
@@ -344,7 +346,6 @@ From an authorized workstation with a Mooncakes `f4ah6o` account:
 ```sh
 moon login
 moon update
-moon install
 moon package --list
 moon publish
 ```
