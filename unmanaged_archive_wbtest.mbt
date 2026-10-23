@@ -274,3 +274,106 @@ async test "unmanaged archive adoption rejects changed missing or linked files" 
     assert_true(rejected)
   }
 }
+
+///|
+/// A later package's extraction deterministically models an external change
+/// after the first archive member was verified, before batch commit begins.
+async test "later batch staging cannot bless a changed or linked adoption" {
+  for
+    (source, change) in [
+      ("archive", "content"),
+      ("archive", "symlink"),
+      ("raw", "content"),
+      ("raw", "symlink"),
+    ] {
+    let root = @fs.tmpdir(
+      prefix="moon-binstall-adopt-later-\{source}-\{change}",
+    )
+    defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+    let bin_dir = root + "/bin"
+    let destination = bin_dir + (if source == "raw" { "/tool" } else { "/cli" })
+    let target = root + "/symlink-target"
+    @fs.mkdir(bin_dir)
+    @fs.write_file(destination, "cli-fixture\n")
+    @fs.write_file(target, "cli-fixture\n")
+    let unrelated = bin_dir + "/.moon-binstall-stage-user-data"
+    @fs.mkdir(unrelated)
+    @fs.write_file(unrelated + "/keep", "user-owned\n")
+    let transport = make_registry_fixture_transport(root, false)
+    let options = if source == "raw" {
+      let raw = make_github_release_transport(
+        root, "v1.2.3", "1.2.3", "cli-fixture\n",
+      )
+      for response in raw.responses {
+        transport.responses.push(response)
+      }
+      for file in raw.files {
+        transport.files.push(file)
+      }
+      parse_batch_options([
+        "acme/tool@v1.2.3", "acme/toolkit/cmd/worker@1.2.3", "--bin-dir", bin_dir,
+        "--target", "linux-x86_64",
+      ])
+    } else {
+      registry_batch_options(bin_dir, false, false)
+    }
+    let real_zipinfo = path_resolved_candidates("zipinfo")[0]
+    let wrapper_dir = root + "/wrapper"
+    @fs.mkdir(wrapper_dir)
+    let script =
+      #|#!/bin/sh
+      #|case "$2" in
+      #|  */asset-1)
+      #|    case "$MOON_BINSTALL_TEST_CHANGE" in
+      #|      content) printf 'unverified-change\n' > "$MOON_BINSTALL_TEST_DESTINATION" ;;
+      #|      symlink)
+      #|        rm -f "$MOON_BINSTALL_TEST_DESTINATION"
+      #|        ln -s "$MOON_BINSTALL_TEST_TARGET" "$MOON_BINSTALL_TEST_DESTINATION"
+      #|        ;;
+      #|    esac
+      #|    ;;
+      #|esac
+      #|exec "$MOON_BINSTALL_TEST_ZIPINFO" "$@"
+      #|
+    @fs.write_file(wrapper_dir + "/zipinfo", script)
+    @fs.chmod(wrapper_dir + "/zipinfo", 0o755)
+    let saved : Array[(String, String?)] = []
+    for
+      name in [
+        "PATH", "MOON_BINSTALL_TEST_CHANGE", "MOON_BINSTALL_TEST_DESTINATION", "MOON_BINSTALL_TEST_TARGET",
+        "MOON_BINSTALL_TEST_ZIPINFO",
+      ] {
+      saved.push((name, @env.get_env_var(name)))
+    }
+    defer (for (name, value) in saved {
+      match value {
+        Some(value) => @env.set_env_var(name, value)
+        None => @env.unset_env_var(name)
+      }
+    })
+    @env.set_env_var("PATH", wrapper_dir + ":" + saved[0].1.unwrap())
+    @env.set_env_var("MOON_BINSTALL_TEST_CHANGE", change)
+    @env.set_env_var("MOON_BINSTALL_TEST_DESTINATION", destination)
+    @env.set_env_var("MOON_BINSTALL_TEST_TARGET", target)
+    @env.set_env_var("MOON_BINSTALL_TEST_ZIPINFO", real_zipinfo)
+    let rejected = try {
+      install_many_using(options, Fixture(transport))
+      false
+    } catch {
+      InstallError(stage=Destination, reason~, ..) =>
+        reason.contains("changed while verifying")
+      _ => false
+    }
+    assert_true(rejected)
+    if change == "content" {
+      assert_eq(@fs.read_file(destination).text(), "unverified-change\n")
+    } else {
+      assert_true(path_kind_no_follow(destination) is Some(SymLink))
+      assert_eq(@fs.read_file(target).text(), "cli-fixture\n")
+    }
+    assert_true(!@fs.exists(bin_dir + "/worker"))
+    assert_true(!@fs.exists(bin_dir + "/.moon-binstall-receipts"))
+    assert_eq(@fs.read_file(unrelated + "/keep").text(), "user-owned\n")
+    assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 2)
+  }
+}

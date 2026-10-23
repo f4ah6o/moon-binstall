@@ -2649,6 +2649,8 @@ priv enum InstallDecision {
   /// Without a receipt, an archive's asset digest cannot identify the
   /// installed executable. Compare its verified member before adopting it.
   VerifyExisting(String)
+  /// Preserve the digest proven against the candidate until receipt commit.
+  AdoptVerified(String)
 }
 
 ///|
@@ -2743,7 +2745,7 @@ async fn decide_install(
           if plan.install.format != "bin" {
             VerifyExisting(existing_digest)
           } else if candidate_digest == existing_digest {
-            Skip
+            AdoptVerified(existing_digest)
           } else {
             abort_install(
               Destination, "check the destination", destination,
@@ -2778,15 +2780,25 @@ async fn verify_existing_binary(
       action="inspect it and pass --force to replace it, or choose another --bin-dir",
     )
   }
+  validate_adoption_destination(item.destination, existing_digest)
+}
+
+///|
+/// Recheck an adoption against the digest already proven by the candidate.
+/// A new hash is evidence to compare, never new provenance to record.
+async fn validate_adoption_destination(
+  destination : String,
+  verified_digest : String,
+) -> Unit {
   // The download/extraction can take time; do not adopt a missing, linked,
   // or changed file based on the digest observed during initial planning.
-  guard path_kind_no_follow(item.destination) is Some(Regular) &&
-    file_sha256(item.destination) == existing_digest else {
+  guard path_kind_no_follow(destination) is Some(Regular) &&
+    file_sha256(destination) == verified_digest else {
     abort_install(
       Destination,
       "check the destination",
-      item.destination,
-      "the existing executable changed while verifying the archive",
+      destination,
+      "the existing executable changed while verifying the install",
       action="inspect the destination and retry",
     )
   }
@@ -2984,7 +2996,7 @@ async fn install_many_using(
     for i = 0; i < resolved.length(); i = i + 1 {
       let item = resolved[i].install
       let verb = match decisions[i] {
-        Skip => "skip (already installed)"
+        Skip | AdoptVerified(_) => "skip (already installed)"
         Install => "install"
         Update(old) => "update (replaces \{old})"
         VerifyExisting(_) => "verify the archive binary against the existing file"
@@ -3019,7 +3031,7 @@ async fn install_many_using(
   })
   for i = 0; i < resolved.length(); i = i + 1 {
     // An identical verified binary is never downloaded again (issue 0001).
-    if decisions[i] is Skip {
+    if decisions[i] is Skip || decisions[i] is AdoptVerified(_) {
       continue
     }
     try {
@@ -3037,7 +3049,7 @@ async fn install_many_using(
       pending.push(true)
       if decisions[i] is VerifyExisting(existing_digest) {
         verify_existing_binary(item, existing_digest)
-        decisions[i] = Skip
+        decisions[i] = AdoptVerified(item.binary_digest)
       }
     } catch {
       InstallError(stage~, what~, target~, reason~, action~) =>
@@ -3051,11 +3063,32 @@ async fn install_many_using(
       err => raise err
     }
   }
+  // Later downloads/extractions may outlast an earlier adoption check.
+  // Revalidate every adoption before the first binary or receipt commit.
+  for i = 0; i < resolved.length(); i = i + 1 {
+    if decisions[i] is AdoptVerified(verified_digest) {
+      let binary = resolved[i].install.binary
+      try {
+        validate_receipt_location(receipt_path(bin_dir, binary))
+        validate_adoption_destination(bin_dir + "/" + binary, verified_digest)
+      } catch {
+        InstallError(stage~, what~, target~, reason~, action~) =>
+          raise InstallError(
+            stage~,
+            what~,
+            target~,
+            reason="\{describe_coordinate(options.coordinates[i])}: \{reason}",
+            action~,
+          )
+        err => raise err
+      }
+    }
+  }
   for i = 0; i < staged.length(); i = i + 1 {
     // Verified unmanaged archive binaries are adopted without replacing
     // the existing file. Their unused staging directories are cleaned up
     // by the same deferred cleanup used for a failed batch.
-    if decisions[staged_index[i]] is Skip {
+    if decisions[staged_index[i]] is AdoptVerified(_) {
       continue
     }
     let item = staged[i]
@@ -3078,20 +3111,20 @@ async fn install_many_using(
       _ => println("Installed \{item.destination} (\{tag})")
     }
   }
-  // Skipped items keep their verified content; an old unmanaged file gains a
-  // receipt now so the next run recognizes it as managed (issue 0001).
+  // Skipped managed items retain their receipts. Adopted items record only
+  // the digest verified against the candidate, never a newly observed hash.
   for i = 0; i < resolved.length(); i = i + 1 {
-    if decisions[i] is Skip {
+    if decisions[i] is Skip || decisions[i] is AdoptVerified(_) {
       let item = resolved[i].install
-      println("Already installed \{bin_dir}/\{item.binary} (\{item.asset.tag})")
-      if read_receipt_file(receipt_path(bin_dir, item.binary)) is None {
+      if decisions[i] is AdoptVerified(verified_digest) {
         record_install_receipt(
           resolved[i],
           describe_coordinate(options.coordinates[i]),
           bin_dir,
-          file_sha256(bin_dir + "/" + item.binary),
+          verified_digest,
         )
       }
+      println("Already installed \{bin_dir}/\{item.binary} (\{item.asset.tag})")
     }
   }
   println("Destination: \{bin_dir} (\{dir_source})")

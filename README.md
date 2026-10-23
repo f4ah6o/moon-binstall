@@ -266,6 +266,8 @@ the installer downloads, verifies and extracts the archive before comparing
 the executable's SHA-256, never the archive container's SHA-256. Matching
 files are not rewritten; a receipt enables subsequent no-download reinstalls
 and managed updates. Different content still requires explicit `--force`.
+Adoptions are rechecked after all batch staging, before any installation is
+committed; receipts retain the candidate-verified digest, never a changed file's hash.
 For an unmanaged archive install, `--dry-run` reports that comparison is
 pending without downloading the archive or changing either file or receipt.
 Before a staged binary is moved into place it is checked for runtime
