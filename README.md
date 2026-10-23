@@ -260,6 +260,14 @@ By default the latest non-prerelease GitHub Release is used. Specify
 `--force` replaces an existing **regular file** after verification, and
 `--bin-dir` or `MOON_BINSTALL_DIR` overrides `$HOME/.local/bin`. Install batches
 are fully downloaded and verified before the first destination is replaced.
+An existing executable without an install receipt can be adopted without
+`--force` when its bytes match the verified candidate. For archive assets,
+the installer downloads, verifies and extracts the archive before comparing
+the executable's SHA-256, never the archive container's SHA-256. Matching
+files are not rewritten; a receipt enables subsequent no-download reinstalls
+and managed updates. Different content still requires explicit `--force`.
+For an unmanaged archive install, `--dry-run` reports that comparison is
+pending without downloading the archive or changing either file or receipt.
 Before a staged binary is moved into place it is checked for runtime
 compatibility — statically, without executing it or running `ldd` on it.
 For a Linux ELF64 binary matching the host architecture, the installer

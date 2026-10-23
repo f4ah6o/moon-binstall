@@ -2640,11 +2640,15 @@ pub async fn install_many(options : BatchOptions) -> Unit {
 
 ///|
 /// The action decided for a resolved plan (issue 0001): skip an identical
-/// install, place a fresh binary, or update a managed one in place.
+/// install, place a fresh binary, update a managed one, or verify an unmanaged
+/// executable against a downloaded archive member before adopting it.
 priv enum InstallDecision {
   Skip
   Install
   Update(String)
+  /// Without a receipt, an archive's asset digest cannot identify the
+  /// installed executable. Compare its verified member before adopting it.
+  VerifyExisting(String)
 }
 
 ///|
@@ -2666,6 +2670,7 @@ async fn file_sha256(path : String) -> String {
 /// the package identity matches the new candidate. Identical verified
 /// content always skips; unmanaged or modified content refuses with a
 /// `--force` path; downgrades and incomparable versions refuse the same way.
+/// Unmanaged archive installs defer the content comparison until extraction.
 async fn decide_install(
   plan : ResolvedInstallPlan,
   bin_dir : String,
@@ -2735,7 +2740,9 @@ async fn decide_install(
             action="pass --force to replace it anyway",
           )
         None =>
-          if candidate_digest == existing_digest {
+          if plan.install.format != "bin" {
+            VerifyExisting(existing_digest)
+          } else if candidate_digest == existing_digest {
             Skip
           } else {
             abort_install(
@@ -2752,6 +2759,36 @@ async fn decide_install(
         "refusing to replace a non-regular file",
         action="remove it or choose another --bin-dir",
       )
+  }
+}
+
+///|
+/// Adoption only records provenance for identical executable bytes. A
+/// mismatching archive member never grants permission to replace the file.
+async fn verify_existing_binary(
+  item : StagedInstall,
+  existing_digest : String,
+) -> Unit {
+  guard item.binary_digest == existing_digest else {
+    abort_install(
+      Destination,
+      "check the destination",
+      item.destination,
+      "an existing executable not installed by moon-binstall differs from the verified archive binary",
+      action="inspect it and pass --force to replace it, or choose another --bin-dir",
+    )
+  }
+  // The download/extraction can take time; do not adopt a missing, linked,
+  // or changed file based on the digest observed during initial planning.
+  guard path_kind_no_follow(item.destination) is Some(Regular) &&
+    file_sha256(item.destination) == existing_digest else {
+    abort_install(
+      Destination,
+      "check the destination",
+      item.destination,
+      "the existing executable changed while verifying the archive",
+      action="inspect the destination and retry",
+    )
   }
 }
 
@@ -2937,8 +2974,8 @@ async fn install_many_using(
   } else {
     target_directory_with_source(options.directory)
   }
-  // Validate every replacement before the first write (issue 0001): a batch
-  // never installs some items and then refuses a later one.
+  // Plan every replacement before staging (issue 0001). Deferred archive
+  // comparisons also finish before any destination or receipt is changed.
   let decisions : Array[InstallDecision] = []
   for i = 0; i < resolved.length(); i = i + 1 {
     decisions.push(decide_install(resolved[i], bin_dir, options.force))
@@ -2950,6 +2987,7 @@ async fn install_many_using(
         Skip => "skip (already installed)"
         Install => "install"
         Update(old) => "update (replaces \{old})"
+        VerifyExisting(_) => "verify the archive binary against the existing file"
       }
       println("Would \{verb} \{item.asset.url} -> \{bin_dir}/\{item.binary}")
     }
@@ -2984,15 +3022,24 @@ async fn install_many_using(
     if decisions[i] is Skip {
       continue
     }
-    let item = stage_install(
-      resolved[i],
-      bin_dir,
-      workspace,
-      i,
-      options.force,
-      options.skip_compat_check,
-      transport,
-    ) catch {
+    try {
+      let item = stage_install(
+        resolved[i],
+        bin_dir,
+        workspace,
+        i,
+        options.force,
+        options.skip_compat_check,
+        transport,
+      )
+      staged.push(item)
+      staged_index.push(i)
+      pending.push(true)
+      if decisions[i] is VerifyExisting(existing_digest) {
+        verify_existing_binary(item, existing_digest)
+        decisions[i] = Skip
+      }
+    } catch {
       InstallError(stage~, what~, target~, reason~, action~) =>
         raise InstallError(
           stage~,
@@ -3003,11 +3050,14 @@ async fn install_many_using(
         )
       err => raise err
     }
-    staged.push(item)
-    staged_index.push(i)
-    pending.push(true)
   }
   for i = 0; i < staged.length(); i = i + 1 {
+    // Verified unmanaged archive binaries are adopted without replacing
+    // the existing file. Their unused staging directories are cleaned up
+    // by the same deferred cleanup used for a failed batch.
+    if decisions[staged_index[i]] is Skip {
+      continue
+    }
     let item = staged[i]
     @fs.rename(item.staging, item.destination, replace=true)
     pending[i] = false
