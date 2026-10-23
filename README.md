@@ -9,10 +9,10 @@ involve redirects.
 ## Install from Mooncakes
 
 Requires MoonBit, `curl`, and Linux or macOS. Install the CLI from
-[Mooncakes](https://mooncakes.io/docs/f4ah6o/moon-binstall@0.1.5):
+[Mooncakes](https://mooncakes.io/docs/f4ah6o/moon-binstall@0.1.7):
 
 ```sh
-moon install f4ah6o/moon-binstall@0.1.5
+moon install f4ah6o/moon-binstall@0.1.7
 export PATH="$HOME/.moon/bin:$PATH"
 
 moon binstall --version

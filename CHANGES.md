@@ -16,6 +16,26 @@
 
 ### Migration
 
+## 0.1.7 - 2026-10-24
+
+### Added
+
+- Receipt-backed idempotent installation and managed upgrades, with explicit
+  guidance for unmanaged binaries, downgrades, and modified installations.
+- Coordinate discovery, actionable install errors, PATH diagnostics, and
+  explicit self-update support.
+- Property-based coordinate grammar tests and raw, ZIP, and TGZ digest
+  lifecycle regression coverage.
+
+### Fixed
+
+- Verify extracted archive members before adopting matching unmanaged binaries,
+  and retain verified executable digests through batch installation.
+- Reject unsafe or symlinked receipt paths before replacing binaries.
+- Parse curl's multi-line header JSON so rate-limit diagnostics remain available.
+- Remove obsolete bare `moon install` dependency steps from CI, release
+  workflows, and documented build, bootstrap, and publishing commands.
+
 ## 0.1.6 - 2026-10-10
 
 ### Added
