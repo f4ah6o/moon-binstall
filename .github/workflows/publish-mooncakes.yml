@@ -114,6 +114,5 @@ jobs:
           fi
           trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
           moon update
-          moon install
           moon package --list
           moon publish
