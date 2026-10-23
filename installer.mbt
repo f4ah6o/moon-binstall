@@ -3272,7 +3272,7 @@ pub async fn execute(argv : ArrayView[String]) -> Int {
     return 0
   }
   if argv.length() == 1 && argv[0] == "--version" {
-    println("moon-binstall 0.1.6")
+    println("moon-binstall 0.1.7")
     return 0
   }
   let config = parse_batch_options(argv)
