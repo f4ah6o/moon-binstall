@@ -8,6 +8,10 @@
 
 ### Fixed
 
+- Serialize cooperating installs and managed updates per destination directory,
+  rechecking installed state after acquiring the lock. `--lock-timeout` controls
+  the wait; dry runs remain read-only.
+
 ### Deprecated
 
 ### Removed

@@ -272,6 +272,16 @@ Adoptions are rechecked after all batch staging, before any installation is
 committed; receipts retain the candidate-verified digest, never a changed file's hash.
 For an unmanaged archive install, `--dry-run` reports that comparison is
 pending without downloading the archive or changing either file or receipt.
+Cooperating installations targeting the same bin directory use a persistent
+`.moon-binstall.lock` file. The lock covers the installation decision through
+binary and receipt writes, including self-updates and local asset installs.
+`--lock-timeout SECONDS` sets the maximum wait (default 30, 0 means no wait,
+maximum 3600). Do not remove or replace the lock file while installers run.
+`--dry-run` creates no lock and is only a snapshot, not a reservation. The
+lock does not protect against non-cooperating writers or guarantee NFS behavior;
+a crash between binary and receipt writes can leave them inconsistent. Batch
+installation is not rolled back after a partial commit.
+
 Before a staged binary is moved into place it is checked for runtime
 compatibility — statically, without executing it or running `ldd` on it.
 For a Linux ELF64 binary matching the host architecture, the installer

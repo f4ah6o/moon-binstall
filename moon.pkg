@@ -13,6 +13,8 @@ import {
 
 import {
   "moonbitlang/core/quickcheck",
+  "moonbitlang/async/cond_var",
+  "moonbitlang/async/stdio",
 } for "wbtest"
 
 pkgtype(kind: "executable")
@@ -21,4 +23,5 @@ supported_targets = "+native"
 
 options(
   "max-concurrent-tests": 1,
+  "native-stub": [ "install_lock.c" ],
 )

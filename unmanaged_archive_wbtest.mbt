@@ -39,7 +39,7 @@ async test "unmanaged archive binary is adopted without rewriting" {
     assert_eq(@fs.read_file(receipt_file).text(), receipt_bytes)
     assert_eq(@fs.mtime(destination), mtime)
     assert_eq(@fs.ctime(destination), ctime)
-    assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 2)
+    assert_eq(count_installed_entries(bin_dir), 2)
     // Adoption also enables the next managed upgrade without --force.
     install_many_using(
       github_options(bin_dir, "v1.2.4", false),
@@ -81,7 +81,7 @@ async test "unmanaged archive bytes are not mistaken for an installed binary" {
     assert_true(rejected)
     assert_eq(file_sha256(destination), original_digest)
     assert_true(!@fs.exists(receipt_path(bin_dir, "tool")))
-    assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 1)
+    assert_eq(count_installed_entries(bin_dir), 1)
   }
 }
 
@@ -148,7 +148,7 @@ async test "unmanaged different archive binary requires force to replace" {
     assert_true(rejected)
     assert_eq(@fs.read_file(destination).text(), "unmanaged-old\n")
     assert_eq(@fs.mtime(destination), mtime)
-    assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 1)
+    assert_eq(count_installed_entries(bin_dir), 1)
     install_many_using(
       github_options(bin_dir, "v1.2.3", true),
       Fixture(transport),
@@ -183,7 +183,7 @@ async test "unmanaged matching archive binary still requires asset verification"
     }
     assert_true(rejected)
     assert_eq(@fs.read_file(bin_dir + "/tool").text(), "matching\n")
-    assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 1)
+    assert_eq(count_installed_entries(bin_dir), 1)
   }
 }
 
@@ -212,7 +212,7 @@ async test "later unmanaged archive mismatch prevents earlier batch installation
   assert_eq(@fs.read_file(bin_dir + "/worker").text(), "foreign-worker\n")
   assert_eq(@fs.read_file(unrelated + "/keep").text(), "user-owned\n")
   // No first-package binary, receipt, or owned staging remains.
-  assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 2)
+  assert_eq(count_installed_entries(bin_dir), 2)
 }
 
 ///|
@@ -234,7 +234,7 @@ async test "later batch digest failure leaves an adopted archive binary unmanage
   }
   assert_true(rejected)
   assert_eq(@fs.read_file(bin_dir + "/cli").text(), "cli-fixture\n")
-  assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 1)
+  assert_eq(count_installed_entries(bin_dir), 1)
 }
 
 ///|
@@ -374,6 +374,6 @@ async test "later batch staging cannot bless a changed or linked adoption" {
     assert_true(!@fs.exists(bin_dir + "/worker"))
     assert_true(!@fs.exists(bin_dir + "/.moon-binstall-receipts"))
     assert_eq(@fs.read_file(unrelated + "/keep").text(), "user-owned\n")
-    assert_eq(@fs.readdir(bin_dir, include_hidden=true).length(), 2)
+    assert_eq(count_installed_entries(bin_dir), 2)
   }
 }
