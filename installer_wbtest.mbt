@@ -328,6 +328,7 @@ async fn fixture_install(
     bin_path: None,
     module_path: None,
     manifest_path: None,
+    lock_timeout: 30,
   }
   let resolved = resolve_asset_for_release(
     payload,
@@ -733,7 +734,7 @@ async test "raw, tgz and ZIP release fixtures resolve and install executable byt
   fixture_install(zip, zip_bin_dir, "zip", fixture_digest(zip))
   assert_eq(@fs.read_file(zip_bin_dir + "/fixture").text(), content)
   assert_true(@fs.can_execute(zip_bin_dir + "/fixture"))
-  assert_eq(@fs.readdir(zip_bin_dir, include_hidden=true).length(), 1)
+  assert_eq(count_installed_entries(zip_bin_dir), 1)
 }
 
 ///|
@@ -1106,7 +1107,7 @@ async test "Mooncakes exact metadata resolves source manifest and installs a two
   assert_eq(@fs.read_file(output + "/worker").text(), "worker-fixture\n")
   assert_true(@fs.can_execute(output + "/cli"))
   assert_true(@fs.can_execute(output + "/worker"))
-  assert_eq(@fs.readdir(output, include_hidden=true).length(), 3)
+  assert_eq(count_installed_entries(output), 3)
 }
 
 ///|
@@ -1187,7 +1188,7 @@ async test "second package digest failure preserves existing files and removes o
   assert_true(rejected)
   assert_eq(@fs.read_file(output + "/cli").text(), "previous-cli\n")
   assert_true(!@fs.exists(output + "/worker"))
-  assert_eq(@fs.readdir(output, include_hidden=true).length(), 1)
+  assert_eq(count_installed_entries(output), 1)
 }
 
 ///|
@@ -1454,7 +1455,7 @@ async test "Mooncakes target fallback uses whitespace metadata and discovers nes
   install_many_using(options, Fixture(transport))
   assert_eq(@fs.read_file(output + "/cli").text(), "discovered cli\n")
   assert_true(@fs.can_execute(output + "/cli"))
-  assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
+  assert_eq(count_installed_entries(output), 2)
 }
 
 ///|
@@ -1511,7 +1512,7 @@ async test "second archive discovery failure preserves both forced destinations"
   )
   assert_eq(@fs.read_file(output + "/first").text(), "old first\n")
   assert_eq(@fs.read_file(output + "/second").text(), "old second\n")
-  assert_eq(@fs.readdir(output, include_hidden=true).length(), 2)
+  assert_eq(count_installed_entries(output), 2)
 }
 
 ///|

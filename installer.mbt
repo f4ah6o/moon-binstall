@@ -24,6 +24,7 @@ pub struct BatchOptions {
   bin_path : String?
   module_path : String?
   manifest_path : String?
+  lock_timeout : Int
 }
 
 ///|
@@ -62,6 +63,7 @@ pub fn usage() -> String {
     #|                        tar.xz, tzstd, tar.zst, or zip
     #|  --manifest-path FILE  read local moon-binstall.json and skip registry lookup
     #|  --force               replace an existing regular executable
+    #|  --lock-timeout SEC    maximum lock wait (default 30, maximum 3600)
     #|  --dry-run             resolve without installing
     #|  --skip-compat-check   install even if the binary cannot run here
     #|
@@ -132,6 +134,8 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
   let mut dry_run = false
   let mut force = false
   let mut skip_compat_check = false
+  let mut lock_timeout = 30
+  let mut seen_lock_timeout = false
   let mut seen_target = false
   let mut seen_targets = false
   let mut seen_dry_run = false
@@ -142,6 +146,27 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
     let arg = argv[idx]
     match arg {
       "install" if idx == 0 => ()
+      "--lock-timeout" => {
+        guard !seen_lock_timeout else {
+          abort_args("duplicate argument: --lock-timeout")
+        }
+        idx += 1
+        guard idx < argv.length() && argv[idx] != "" else {
+          abort_args("--lock-timeout requires seconds")
+        }
+        let mut seconds = 0
+        for ch in argv[idx] {
+          guard ch >= '0' && ch <= '9' else {
+            abort_args("--lock-timeout requires an integer from 0 to 3600")
+          }
+          seconds = seconds * 10 + ch.to_int() - '0'.to_int()
+          guard seconds <= 3600 else {
+            abort_args("--lock-timeout must not exceed 3600 seconds")
+          }
+        }
+        lock_timeout = seconds
+        seen_lock_timeout = true
+      }
       "--dry-run" => {
         guard !seen_dry_run else { abort_args("duplicate argument: --dry-run") }
         dry_run = true
@@ -299,6 +324,7 @@ pub fn parse_batch_options(argv : ArrayView[String]) -> BatchOptions raise {
     bin_path,
     module_path,
     manifest_path,
+    lock_timeout,
   }
 }
 
@@ -822,6 +848,7 @@ priv enum Transport {
   Https
   Fixture(FixtureTransport)
   PausedFixture(FixtureTransport, async () -> Unit)
+  WaitingFixture(FixtureTransport, async () -> Unit)
 }
 
 ///|
@@ -850,7 +877,7 @@ async fn fetch_text_using(
 ) -> String? {
   match transport {
     Https => fetch_text(url, accept_json, what)
-    Fixture(fixtures) | PausedFixture(fixtures, _) =>
+    Fixture(fixtures) | PausedFixture(fixtures, _) | WaitingFixture(fixtures, _) =>
       match fixture_lookup(fixtures.responses, url) {
         Some(body) => Some(body)
         None =>
@@ -877,6 +904,7 @@ async fn download_using(
       pause()
       download_using(url, path, Fixture(fixtures))
     }
+    WaitingFixture(fixtures, _) => download_using(url, path, Fixture(fixtures))
     Fixture(fixtures) => {
       match fixture_lookup(fixtures.failures, url) {
         Some(HttpStatus(code)) =>
@@ -2969,6 +2997,9 @@ async fn install_many_using(
     // Safe binary names are ASCII, so lowercase keys are portable. Apply the
     // check everywhere because default macOS filesystems are case-insensitive.
     let binary_key = item.install.binary.to_lower()
+    guard binary_key != ".moon-binstall.lock" else {
+      abort_resolve("reserved executable name: \{item.install.binary}")
+    }
     guard !binary_names.contains(binary_key) else {
       abort_resolve(
         "multiple packages resolve to the same executable name (case-insensitive): \{item.install.binary}",
@@ -2991,6 +3022,18 @@ async fn install_many_using(
   } else {
     target_directory_with_source(options.directory)
   }
+  // Dry runs are snapshots and must not create a directory or lock file.
+  let lock_fd = if options.dry_run {
+    -1
+  } else {
+    @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
+    match transport {
+      WaitingFixture(_, notify) =>
+        acquire_install_lock(bin_dir, options.lock_timeout, on_wait=notify)
+      _ => acquire_install_lock(bin_dir, options.lock_timeout)
+    }
+  }
+  defer (if lock_fd >= 0 { ignore(close_lock_ffi(lock_fd)) })
   // Plan every replacement before staging (issue 0001). Deferred archive
   // comparisons also finish before any destination or receipt is changed.
   let decisions : Array[InstallDecision] = []
@@ -3226,6 +3269,7 @@ pub async fn install(config : Options) -> Unit {
     bin_path: None,
     module_path: None,
     manifest_path: None,
+    lock_timeout: 30,
   })
 }
 
@@ -3239,11 +3283,15 @@ pub async fn install_from_asset_file(
   bin_dir : String,
   force : Bool,
 ) -> Unit {
-  guard safe_binary_name(binary) else { abort_args("unsafe executable name") }
+  guard safe_binary_name(binary) && binary.to_lower() != ".moon-binstall.lock" else {
+    abort_args("unsafe or reserved executable name")
+  }
   guard bin_dir.has_prefix("/") else {
     abort_args("--bin-dir must be an absolute path")
   }
   @fs.mkdir(bin_dir, recursive=true, allow_exist=true)
+  let lock_fd = acquire_install_lock(bin_dir, 30)
+  defer (ignore(close_lock_ffi(lock_fd)))
   let destination = bin_dir + "/" + binary
   check_destination(destination, force)
   verify_digest(asset_path, digest)
