@@ -821,6 +821,7 @@ priv struct FixtureTransport {
 priv enum Transport {
   Https
   Fixture(FixtureTransport)
+  PausedFixture(FixtureTransport, async () -> Unit)
 }
 
 ///|
@@ -849,7 +850,7 @@ async fn fetch_text_using(
 ) -> String? {
   match transport {
     Https => fetch_text(url, accept_json, what)
-    Fixture(fixtures) =>
+    Fixture(fixtures) | PausedFixture(fixtures, _) =>
       match fixture_lookup(fixtures.responses, url) {
         Some(body) => Some(body)
         None =>
@@ -872,6 +873,10 @@ async fn download_using(
 ) -> Unit {
   match transport {
     Https => download(url, path)
+    PausedFixture(fixtures, pause) => {
+      pause()
+      download_using(url, path, Fixture(fixtures))
+    }
     Fixture(fixtures) => {
       match fixture_lookup(fixtures.failures, url) {
         Some(HttpStatus(code)) =>
