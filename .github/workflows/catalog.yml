@@ -1,0 +1,94 @@
+name: Catalog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install scan tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends curl python3 python3-yaml
+      - uses: hustcer/setup-moonbit@v1
+      - name: Resolve dependencies
+        run: moon update
+      - name: Build the CLI
+        run: moon build --target native --release
+      - name: Install the CLI for the scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary=$(find _build/native/release/build -maxdepth 1 -type f -name 'moon-binstall.exe' -print)
+          test -n "$binary"
+          install -m 755 "$binary" "$RUNNER_TEMP/moon-binstall"
+      - name: Scan and generate CATALOG.md
+        shell: bash
+        env:
+          # A PAT raises the limit to 5000 requests/hour. The default
+          # GITHUB_TOKEN is limited to 1000 requests/hour per repository,
+          # which the default budgets stay below.
+          GITHUB_TOKEN: ${{ secrets.CATALOG_GITHUB_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m scripts.catalog \
+            --state scripts/catalog/state.json \
+            --output CATALOG.md \
+            scan \
+            --binary "$RUNNER_TEMP/moon-binstall" \
+            --always-budget 60 \
+            --rotate-budget 40
+      - name: Verify the catalog is reproducible
+        run: |
+          python3 -m scripts.catalog \
+            --state scripts/catalog/state.json \
+            --output CATALOG.md \
+            check
+      - name: Open a pull request when the catalog changed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- CATALOG.md scripts/catalog/state.json; then
+            echo "catalog is unchanged"
+            exit 0
+          fi
+          branch="catalog/update"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$branch" || true
+          if git rev-parse --verify "origin/$branch" > /dev/null 2>&1; then
+            git checkout -B "$branch" "origin/$branch"
+          else
+            git checkout -B "$branch"
+          fi
+          git add CATALOG.md scripts/catalog/state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "catalog: refresh verified CLIs"
+            git push origin "$branch"
+          fi
+          if gh pr view "$branch" --json number > /dev/null 2>&1; then
+            echo "pull request already open for $branch"
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "catalog: refresh verified CLIs" \
+              --body "Automated catalog refresh. Compatibility is determined by \`moon binstall --dry-run\`; see CATALOG.md for the exact guarantee and limitations."
+          fi

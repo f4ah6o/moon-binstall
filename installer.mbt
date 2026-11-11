@@ -70,6 +70,8 @@ pub fn usage() -> String {
     #|  moon binstall --help
     #|
     #|Environment: MOON_BINSTALL_DIR (default $HOME/.local/bin)
+    #|             GITHUB_TOKEN or GH_TOKEN raises the GitHub API rate limit;
+    #|             it is sent only to api.github.com.
     #|
     #|Requires: curl >= 8.4.0; tar and matching codecs for tar archives;
     #|          zstd for tzstd; unzip/zipinfo for zip; macOS or Linux.
@@ -665,6 +667,47 @@ async fn download(url : String, path : String) -> Unit {
 }
 
 ///|
+/// A GitHub API token is only accepted when it cannot inject curl config
+/// syntax: ASCII letters, digits, `_`, `-` and `.` cover every GitHub token
+/// format and nothing that needs quoting.
+fn valid_github_token(value : String) -> Bool {
+  if value == "" {
+    return false
+  }
+  for c in value {
+    if !((c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '_' ||
+      c == '-' ||
+      c == '.') {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// Optional GitHub API token from GITHUB_TOKEN or GH_TOKEN. It is sent only
+/// to api.github.com — never to asset hosts or the Mooncakes registry — and
+/// is handed to curl through a config file on stdin so it never appears in
+/// the process argument list or in error output.
+fn github_api_token() -> String? {
+  for name in ["GITHUB_TOKEN", "GH_TOKEN"] {
+    match @env.get_env_var(name) {
+      Some(value) => {
+        let token = value.trim().to_owned()
+        if valid_github_token(token) {
+          return Some(token)
+        }
+      }
+      None => ()
+    }
+  }
+  None
+}
+
+///|
 /// Fetch an HTTPS resource. A confirmed HTTP 404 returns None so resolvers
 /// keep their "not found" control flow; any other status or a status-less
 /// transport failure raises a classified error instead.
@@ -690,10 +733,26 @@ async fn fetch_text(url : String, accept_json : Bool, what : String) -> String? 
     ] +
     headers +
     [url]
-  let response = @shell.Cmd("curl", args).output(
-    timeout_ms=30000,
-    max_output_bytes=16777216,
-  )
+  let token = if url.has_prefix("https://api.github.com/") {
+    github_api_token()
+  } else {
+    None
+  }
+  let response = match token {
+    Some(value) =>
+      @shell.Cmd(
+        "curl",
+        args + ["--config", "-"],
+        stdin=@shell.Stdin::Text(
+          "header = \"Authorization: Bearer \{value}\"\n",
+        ),
+      ).output(timeout_ms=30000, max_output_bytes=16777216)
+    None =>
+      @shell.Cmd("curl", args).output(
+        timeout_ms=30000,
+        max_output_bytes=16777216,
+      )
+  }
   let exit_code = response.exit_code()
   let report = curl_report(response.stderr())
   if exit_code != 0 {

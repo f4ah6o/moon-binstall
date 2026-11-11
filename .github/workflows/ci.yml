@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native test and archive tools
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends bzip2 curl gzip python3 tar unzip xz-utils zstd
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends bzip2 curl gzip python3 python3-yaml tar unzip xz-utils zstd
       - uses: hustcer/setup-moonbit@v1
       - name: Resolve dependencies
         run: moon update

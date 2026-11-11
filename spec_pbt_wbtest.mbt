@@ -36,7 +36,8 @@ fn qc_version_model(value : String) -> Bool {
 }
 
 ///|
-priv struct QcToken(String) derive(Debug)
+#derive(Debug)
+priv struct QcToken(String)
 
 ///|
 fn qc_alphabet_generator(alphabet : String) -> @quickcheck.Generator[String] {
@@ -69,10 +70,11 @@ impl @quickcheck.Shrink for QcToken with fn shrink(token) {
 }
 
 ///|
+#derive(Debug)
 priv struct QcCoordinate {
   module_path : String
   input : String
-} derive(Debug)
+}
 
 ///|
 impl @quickcheck.Arbitrary for QcCoordinate with fn arbitrary(size, state) {

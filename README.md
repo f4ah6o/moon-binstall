@@ -245,6 +245,85 @@ GitHub Actions permission to create a Release.
 
 Update the version in `installer.mbt` as well so `moon binstall --version` matches.
 
+## Catalog
+
+[`CATALOG.md`](CATALOG.md) lists MoonBit CLIs that the existing resolver can
+install. It is generated, never edited by hand:
+
+```sh
+moon build --target native --release
+python3 -m scripts.catalog \
+  --state scripts/catalog/state.json \
+  --output CATALOG.md \
+  scan --binary _build/native/release/build/moon-binstall.exe
+```
+
+`python3 -m scripts.catalog check` re-renders the file from the state without
+network access and fails when the committed file is stale.
+
+### What `verified` means
+
+A row is listed when `moon binstall <coordinate> --target <target> --dry-run`
+exits successfully and prints a `Resolved` line for that coordinate and
+target. That proves the resolver matched a GitHub release asset. It does not
+download the asset, verify its SHA-256, extract an archive, check ELF
+compatibility, install anything or run the CLI. Those checks happen only
+during a real install.
+
+### Discovery
+
+Candidates come from public information only:
+
+- the Mooncakes registry module list (`GET https://mooncakes.io/api/v0/modules`),
+  filtered to non-yanked modules with a public GitHub repository;
+- GitHub code search for `"moon binstall"`, `f4ah6o/moon-binstall`,
+  `moon-binstall` and `moon-binstall.json`;
+- GitHub repository search for README mentions;
+- `moon binstall` examples in this repository's README.
+
+Two path components are a GitHub `owner/repo` coordinate; three or more are a
+Mooncakes `owner/module/package` coordinate. The two are never merged, and a
+name similarity is never treated as the same project.
+
+Limits:
+
+- GitHub code search requires authentication and is limited to 10 requests
+  per minute. A failed search is a warning, not a fatal error, so a
+  repository can be missing until a later scan.
+- The registry API does not expose package paths. Registry-discovered modules
+  are therefore verified through their GitHub `owner/repo` coordinate; a
+  module whose assets only match a Mooncakes coordinate is not detected.
+- Registry-only candidates rotate. Each scan verifies a bounded subset
+  (`--rotate-budget`, default 100); explicit search hits and currently
+  verified CLIs are verified every run. `--full` verifies every discovered
+  candidate, which exceeds one hour's API quota for the current registry and
+  is intended for a personal access token and repeated runs.
+- The scan uses `GITHUB_TOKEN` or `GH_TOKEN` for `api.github.com` only. The
+  default `GITHUB_TOKEN` in Actions allows 1000 requests per hour; a
+  `CATALOG_GITHUB_TOKEN` secret raises that to 5000.
+
+### Failure handling
+
+`unknown` results (rate limit, network failure, timeout, unexpected response)
+never replace a confirmed `verified` or `unsupported` result. A candidate that
+is missing from one discovery run is not deleted. The state file keeps the
+last confirmed observation per candidate and target, and `CATALOG.md` is only
+rewritten when its content changes; the date advances only on a real change.
+
+### Adoption
+
+The `Adoption` section lists repositories with evidence in the repository
+itself: a README install command, a workflow step or a `moon-binstall.json`.
+A search hit alone is not usage, and this repository, test fixtures and
+link-only mentions are excluded.
+
+### Automation
+
+`.github/workflows/catalog.yml` runs daily and on `workflow_dispatch`. It
+builds the CLI, scans, verifies the generated file, and opens a pull request
+from `catalog/update` only when `CATALOG.md` or the state changed. It never
+pushes to `main` directly.
+
 ## Release contract
 
 GitHub Releases must include a matching raw executable or a supported `.tar`,
@@ -303,6 +382,11 @@ limits archive listings to 16 MiB and 100,000 entries, caps selected binary
 output at 128 MiB, stages files in private directories on the destination
 filesystem, and renames only after verification. Symlink and non-regular
 destinations remain blocked, including with `--force`.
+
+`GITHUB_TOKEN` or `GH_TOKEN` is optional. When set, it is sent only to
+`api.github.com` as a bearer token to raise the API rate limit. It is passed
+to curl through a config file on stdin, never through the process argument
+list, and it is never printed.
 
 Runtime requirements are `curl` 8.4.0 or newer and Linux or macOS. The minimum
 version is required because curl only enforces the download size limit during

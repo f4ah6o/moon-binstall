@@ -7,6 +7,6 @@ keywords = ["moonbit", "cli", "binary-installer", "binstall", "github-releases"]
 description = "Checksum-verified MoonBit CLI binary installer using GitHub Releases"
 preferred_target = "native"
 import {
-  "moonbitlang/async@0.22.4",
-  "moonbitlang/x@0.5.5",
+  "moonbitlang/async@0.22.9",
+  "moonbitlang/x@0.5.7",
 }

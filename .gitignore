@@ -3,3 +3,4 @@ target/
 .moon/
 .mooncakes/
 __pycache__/
+pkg.generated.mbti

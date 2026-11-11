@@ -4,9 +4,22 @@
 
 ### Added
 
+- `CATALOG.md`, generated from public discovery and verified only with
+  `moon binstall --dry-run`, plus `scripts/catalog/` (discovery, verification,
+  state merge, Markdown generation) and a daily `Catalog` workflow that opens
+  a pull request only when the catalog changes.
+- Optional `GITHUB_TOKEN`/`GH_TOKEN` support for `api.github.com` requests,
+  passed to curl through stdin so the token never appears in the process
+  argument list.
+
 ### Changed
 
+- Updated `moonbitlang/async` to 0.22.9 and `moonbitlang/x` to 0.5.7.
+
 ### Fixed
+
+- Replaced deprecated `derive(...)` syntax with `#derive(...)` so
+  `moon check --deny-warn` passes on the current MoonBit toolchain.
 
 ### Deprecated
 
