@@ -72,12 +72,22 @@ jobs:
           branch="catalog/update"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "$branch" || true
-          if git rev-parse --verify "origin/$branch" > /dev/null 2>&1; then
+          snapshot_dir="$(mktemp -d)"
+          mkdir -p "$snapshot_dir/scripts/catalog"
+          cp CATALOG.md "$snapshot_dir/CATALOG.md"
+          cp scripts/catalog/state.json "$snapshot_dir/scripts/catalog/state.json"
+          git restore -- CATALOG.md scripts/catalog/state.json
+          remote_ref="refs/heads/$branch"
+          remote_head="$(git ls-remote --heads origin "$remote_ref")"
+          if test -n "$remote_head"; then
+            git fetch origin "$remote_ref:refs/remotes/origin/$branch"
             git checkout -B "$branch" "origin/$branch"
           else
             git checkout -B "$branch"
           fi
+          cp "$snapshot_dir/CATALOG.md" CATALOG.md
+          cp "$snapshot_dir/scripts/catalog/state.json" scripts/catalog/state.json
+          rm -rf "$snapshot_dir"
           git add CATALOG.md scripts/catalog/state.json
           if ! git diff --cached --quiet; then
             git commit -m "catalog: refresh verified CLIs"
