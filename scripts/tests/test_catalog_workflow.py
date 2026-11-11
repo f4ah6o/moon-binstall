@@ -1,6 +1,9 @@
 """What: the catalog workflow has the required triggers, limits and permissions."""
 
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import sys
 import unittest
 
@@ -72,7 +75,6 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertIn("git diff --quiet", publish["run"])
         self.assertIn("gh pr create", publish["run"])
-        self.assertIn('git fetch origin "$branch"', publish["run"])
         self.assertIn('git push origin "$branch"', publish["run"])
         self.assertNotIn("--force", publish["run"])
 
@@ -87,5 +89,74 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("set -x", self.text)
 
 
+@unittest.skipIf(yaml is None, "PyYAML is required for workflow validation")
+class PublishWorkflowTests(unittest.TestCase):
+    def run_publish(self, existing=False, identical=False, remote_error=False):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["catalog"]["steps"]
+        script = next(s["run"] for s in steps if s.get("name") == "Open a pull request when the catalog changed")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            remote = root / "remote.git"
+
+            def git(*args):
+                return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+            subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+            subprocess.run(["git", "init", "-b", "main", str(repo)], check=True, capture_output=True)
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.org")
+            (repo / "scripts/catalog").mkdir(parents=True)
+            (repo / "CATALOG.md").write_text("main catalog\n")
+            (repo / "scripts/catalog/state.json").write_text("main state\n")
+            git("add", ".")
+            git("commit", "-m", "base")
+            git("remote", "add", "origin", str(remote))
+            git("push", "origin", "main")
+            if existing:
+                git("checkout", "-b", "catalog/update")
+                (repo / "CATALOG.md").write_text("generated catalog\n" if identical else "previous catalog\n")
+                (repo / "scripts/catalog/state.json").write_text("generated state\n" if identical else "previous state\n")
+                git("add", ".")
+                git("commit", "-m", "previous update")
+                git("push", "origin", "catalog/update")
+                git("checkout", "main")
+            (repo / "CATALOG.md").write_text("generated catalog\n")
+            (repo / "scripts/catalog/state.json").write_text("generated state\n")
+            if remote_error:
+                git("remote", "set-url", "origin", str(root / "missing.git"))
+            bindir = root / "bin"
+            bindir.mkdir()
+            gh = bindir / "gh"
+            gh.write_text('#!/bin/sh\nif [ "$1 $2" = "pr view" ]; then exit 1; fi\nprintf "%s\\n" "$*" >> "$GH_CALL_LOG"\n')
+            gh.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = str(bindir) + os.pathsep + env["PATH"]
+            env["GH_CALL_LOG"] = str(root / "gh.log")
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=repo, env=env, capture_output=True, text=True)
+            if remote_error:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((root / "gh.log").exists())
+                return
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(git("show", "origin/catalog/update:CATALOG.md").stdout, "generated catalog\n")
+            self.assertEqual(git("show", "origin/catalog/update:scripts/catalog/state.json").stdout, "generated state\n")
+            self.assertIn("pr create", (root / "gh.log").read_text())
+
+    def test_generated_files_are_published_on_existing_branch(self):
+        self.run_publish(existing=True)
+
+    def test_existing_identical_update_can_create_missing_pr(self):
+        self.run_publish(existing=True, identical=True)
+
+    def test_generated_files_are_published_on_new_branch(self):
+        self.run_publish()
+
+    def test_remote_failure_does_not_create_a_pr(self):
+        self.run_publish(existing=True, remote_error=True)
+
+
 if __name__ == "__main__":
     unittest.main()
+
