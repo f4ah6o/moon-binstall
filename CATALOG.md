@@ -13,6 +13,7 @@ Last updated: 2026-11-11 UTC
 | dsh | f4ah6o/dsh.mbt | ✓ | ✓ | — | ✓ | `moon binstall f4ah6o/dsh.mbt` |
 | moon-binstall | f4ah6o/moon-binstall | ✓ | ✓ | — | ✓ | `moon binstall f4ah6o/moon-binstall` |
 | moon-release | dijdzv/moon-release | ✓ | — | — | — | `moon binstall dijdzv/moon-release` |
+| moon-wipe | f4ah6o/moon-wipe | ✓ | ✓ | — | ✓ | `moon binstall f4ah6o/moon-wipe` |
 | turtles | gpui-mbt/turtles.mbt | ✓ | ✓ | — | ✓ | `moon binstall gpui-mbt/turtles.mbt` |
 
 ## Detection
@@ -23,11 +24,11 @@ Last updated: 2026-11-11 UTC
 
 ## Scan Summary
 
-- Candidates tracked: 332
-- Verified CLIs: 4
-- Unsupported candidates: 327
+- Candidates tracked: 373
+- Verified CLIs: 5
+- Unsupported candidates: 367
 - Unknown results: 0
-- Adoption entries: 2
+- Adoption entries: 3
 - Reference mentions: 0
 
 ## Adoption
@@ -36,6 +37,7 @@ Last updated: 2026-11-11 UTC
 |---|---|---|
 | f4ah6o/dsh.mbt | adoption | README.md: moon binstall f4ah6o/dsh.mbt; README.md: moon binstall f4ah6o/dsh/cmd/dsh |
 | f4ah6o/electron.mbt | integration | moon-binstall.json |
+| f4ah6o/moon-wipe | integration | moon-binstall.json |
 
 ## Limitations
 
