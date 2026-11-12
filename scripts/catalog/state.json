@@ -26,7 +26,7 @@
       "since": "2026-11-11"
     }
   },
-  "body_sha256": "3b467ffd6167faf0398a05d039130134a5959296dfe43a6159942ec079aceffc",
+  "body_sha256": "14a1e7789d22eddb4d4d815a9e6f43f03b6bceac8da29994bb7b201af8726d6a",
   "candidates": {
     "aziis98/stellarium": {
       "coordinate": "aziis98/stellarium",
@@ -11982,6 +11982,1029 @@
         }
       }
     },
+    "oboard/mimetype": {
+      "coordinate": "oboard/mimetype",
+      "description": "Mime types for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/mimetype",
+      "repository": "oboard/mimetype",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/mio": {
+      "coordinate": "oboard/mio",
+      "description": "Best async http library for Moonbit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/mio",
+      "repository": "oboard/mio",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/mocket": {
+      "coordinate": "oboard/mocket",
+      "description": "A web framework for MoonBit.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/mocket",
+      "repository": "oboard/mocket",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/moonbit-eval": {
+      "coordinate": "oboard/moonbit-eval",
+      "description": "MoonBit Eval Package",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/eval",
+      "repository": "oboard/moonbit-eval",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/moonbit-redis": {
+      "coordinate": "oboard/moonbit-redis",
+      "description": "A modern, high performance Redis client for MoonBit.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/redis",
+      "repository": "oboard/moonbit-redis",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/mooncrypto": {
+      "coordinate": "oboard/mooncrypto",
+      "description": "MoonBit Crypto Library",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/mooncrypto",
+      "repository": "oboard/mooncrypto",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/moonetx": {
+      "coordinate": "oboard/moonetx",
+      "description": "MoonBit\u7f51\u7edc\u5206\u6790\u6269\u5c55",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/moonetx",
+      "repository": "oboard/moonetx",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/morm": {
+      "coordinate": "oboard/morm",
+      "description": "A lightweight MoonBit ORM with typed queries, code generation, and multi-database engines",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/morm",
+      "repository": "oboard/morm",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/numoon": {
+      "coordinate": "oboard/numoon",
+      "description": "MoonBit Mathematical Operation",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/numoon",
+      "repository": "oboard/numoon",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/reqbest": {
+      "coordinate": "oboard/reqbest",
+      "description": "Best async http library for Moonbit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/reqbest",
+      "repository": "oboard/reqbest",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oboard/reqmest": {
+      "coordinate": "oboard/reqmest",
+      "description": "Best async http library for Moonbit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oboard/reqmest",
+      "repository": "oboard/reqmest",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oilleelssq-wq/moon-cpio": {
+      "coordinate": "oilleelssq-wq/moon-cpio",
+      "description": "Safe cpio parsing, streaming, deterministic writing, and CLI extraction.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oilleelssq-wq/moon-cpio",
+      "repository": "oilleelssq-wq/moon-cpio",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oilleelssq-wq/moonbit-pki": {
+      "coordinate": "oilleelssq-wq/MoonBit-PKI",
+      "description": "Pure-MoonBit ASN.1 DER codec and X.509 certificate toolkit.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oilleelssq-wq/MoonBit-PKI",
+      "repository": "oilleelssq-wq/MoonBit-PKI",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oilleelssq-wq/moonlink": {
+      "coordinate": "oilleelssq-wq/moonlink",
+      "description": "Deterministic symbol resolution and link-map diagnostics for ELF64 relocatable objects.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oilleelssq-wq/moonlink",
+      "repository": "oilleelssq-wq/moonlink",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oilleelssq-wq/moonsatkit": {
+      "coordinate": "oilleelssq-wq/MoonSatKit",
+      "description": "Pure MoonBit toolkit for satellite orbit data, pass prediction, and visualization",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oilleelssq-wq/moonsatkit",
+      "repository": "oilleelssq-wq/MoonSatKit",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oilleelssq-wq/moonua": {
+      "coordinate": "oilleelssq-wq/MoonUA",
+      "description": "Pure MoonBit OPC UA Binary Encoding primitives and data-model codecs.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oilleelssq-wq/moonua",
+      "repository": "oilleelssq-wq/MoonUA",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oilleelssq-wq/moonxslt": {
+      "coordinate": "oilleelssq-wq/moonxslt",
+      "description": "A pure MoonBit XSLT 1.0 processor with its own XML parser and XPath 1.0 engine.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oilleelssq-wq/moonxslt",
+      "repository": "oilleelssq-wq/moonxslt",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "ojii3/moq-mbt": {
+      "coordinate": "OJII3/moq-mbt",
+      "description": "Media over QUIC (MoQ) Transport implementation in MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "OJII3/moq-mbt",
+      "repository": "OJII3/moq-mbt",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "ojii3/onnxruntime-web-mbt": {
+      "coordinate": "ojii3/onnxruntime-web-mbt",
+      "description": "MoonBit bindings for ONNX Runtime Web",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "OJII3/onnxruntime_web",
+      "repository": "ojii3/onnxruntime-web-mbt",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "ojii3/ros2-mbt": {
+      "coordinate": "OJII3/ros2-mbt",
+      "description": "A small DDS/RTPS compatibility layer for MoonBit and ROS 2",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "OJII3/ros2-mbt",
+      "repository": "OJII3/ros2-mbt",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "okmambaout/moon-wfst": {
+      "coordinate": "okMambaOut/moon-wfst",
+      "description": "Weighted finite-state transducer data model and graph algorithms in MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "okMambaOut/moon-wfst",
+      "repository": "okMambaOut/moon-wfst",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "okmambaout/moonchange": {
+      "coordinate": "okMambaOut/moonchange",
+      "description": "Deterministic repository change-policy evaluation and review planning for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "ZJH-666-ZJH/moonchange",
+      "repository": "okMambaOut/moonchange",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "okmambaout/moonincidence": {
+      "coordinate": "okMambaOut/moonincidence",
+      "description": "\u6709\u9650\u504f\u5e8f\u7684\u6574\u6570\u5173\u8054\u4ee3\u6570\u3001M\u00f6bius \u53cd\u6f14\u4e0e\u6709\u9884\u7b97\u7684\u7cbe\u786e\u7ec4\u5408\u8ba1\u6570",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "okMambaOut/moonincidence",
+      "repository": "okMambaOut/moonincidence",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "okmambaout/moonpetri": {
+      "coordinate": "okMambaOut/moonpetri",
+      "description": "Deterministic discrete Petri net modeling and reachability analysis for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "okMambaOut/moonpetri",
+      "repository": "okMambaOut/moonpetri",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oldpigxjk/moon_toolkit": {
+      "coordinate": "OldPigxjk/moon_toolkit",
+      "description": "MoonBit general graph algorithm toolkit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "OldPigxjk/moon_toolkit",
+      "repository": "OldPigxjk/moon_toolkit",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "omochice/pele.mbt": {
+      "coordinate": "Omochice/pele.mbt",
+      "description": "A MoonBit port of pele, a Mermaid to SVG renderer",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "Omochice/pele",
+      "repository": "Omochice/pele.mbt",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "orion-xx/moonbit-unicode": {
+      "coordinate": "Orion-XX/moonbit-unicode",
+      "description": "Unicode 16.0 normalization and extended grapheme segmentation for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "Atman-Angle/moonbit-unicode",
+      "repository": "Orion-XX/moonbit-unicode",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "orisgo/moctree": {
+      "coordinate": "OrisGo/MOctree",
+      "description": "A WASM-first static AABB octree with bounded construction, read-only queries and reusable query buffers.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "OrisGo/octree",
+      "repository": "OrisGo/MOctree",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "orisgo/nestedtext": {
+      "coordinate": "OrisGo/nestedtext",
+      "description": "A MoonBit port of the NestedText serialization format.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "OrisGo/nestedtext",
+      "repository": "OrisGo/nestedtext",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "ouoankang/moonbit-xsd-datatypes": {
+      "coordinate": "ouoankang/moonbit-xsd-datatypes",
+      "description": "XSD 1.0 datatype validation for MoonBit: lexical-space parsing and facet checking for the built-in simple types.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "ouoankang/moonbit-xsd-datatypes",
+      "repository": "ouoankang/moonbit-xsd-datatypes",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "ouoankang/moonformdata": {
+      "coordinate": "ouoankang/moonformdata",
+      "description": "Multipart parsing, upload contracts, compatibility analysis, conformance suites, and regression baselines for MoonBit.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "ouoankang/moonformdata",
+      "repository": "ouoankang/moonformdata",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
     "owner/module/cmd/first": {
       "coordinate": "owner/module/cmd/first",
       "first_seen": "2026-11-11",
@@ -12008,6 +13031,303 @@
         "linux-x86_64": {
           "reason": "module_not_found",
           "since": "2026-11-11",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyc996/moonwatermarkkit": {
+      "coordinate": "Oyc996/MoonWatermarkKit",
+      "description": "Event-time watermark, lateness, and window assignment primitives for MoonBit.",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "Oyc996/moonwatermarkkit",
+      "repository": "Oyc996/MoonWatermarkKit",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonbdd": {
+      "coordinate": "oyjh0381/MoonBDD",
+      "description": "Canonical ROBDDs and bounded symbolic state-space analysis for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonbdd",
+      "repository": "oyjh0381/MoonBDD",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonbit": {
+      "coordinate": "oyjh0381/MoonBit",
+      "description": "Deterministic OCI image layout builder and validator for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonoci",
+      "repository": "oyjh0381/MoonBit",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonerasure": {
+      "coordinate": "oyjh0381/MoonErasure",
+      "description": "Reed-Solomon coding, byte-range parity updates and placement-aware repair planning",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonerasure",
+      "repository": "oyjh0381/MoonErasure",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonhttpcache": {
+      "coordinate": "oyjh0381/MoonHttpCache",
+      "description": "Deterministic RFC 9111 HTTP cache decision engine for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/http-cache",
+      "repository": "oyjh0381/MoonHttpCache",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonipfix": {
+      "coordinate": "oyjh0381/MoonIPFIX",
+      "description": "Template-driven IPFIX flow telemetry decoding and auditing for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonipfix",
+      "repository": "oyjh0381/MoonIPFIX",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonlab": {
+      "coordinate": "oyjh0381/MoonLab",
+      "description": "Deterministic distributed-system simulation and fault injection for MoonBit",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonlab",
+      "repository": "oyjh0381/MoonLab",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonmime": {
+      "coordinate": "oyjh0381/MoonMIME",
+      "description": "Byte-preserving MIME security, gateway, and forensic infrastructure",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonmime",
+      "repository": "oyjh0381/MoonMIME",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        }
+      }
+    },
+    "oyjh0381/moonorc": {
+      "coordinate": "oyjh0381/MoonORC",
+      "description": "Bounded ORC columnar record interchange and selective stripe scanning",
+      "first_seen": "2026-11-12",
+      "kind": "github",
+      "module": "oyjh0381/moonorc",
+      "repository": "oyjh0381/MoonORC",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-12",
           "status": "unsupported"
         }
       }
@@ -12364,6 +13684,6 @@
       }
     }
   },
-  "catalog_updated": "2026-11-11",
+  "catalog_updated": "2026-11-12",
   "version": 1
 }
