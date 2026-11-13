@@ -317,7 +317,10 @@ async test "later batch staging cannot bless a changed or linked adoption" {
     } else {
       registry_batch_options(bin_dir, false, false)
     }
-    let real_zipinfo = path_resolved_candidates("zipinfo")[0]
+    let real_zipinfo = match path_resolved_candidate("zipinfo") {
+      PathHit(path) => path
+      _ => abort("zipinfo must be available on PATH")
+    }
     let wrapper_dir = root + "/wrapper"
     @fs.mkdir(wrapper_dir)
     let script =

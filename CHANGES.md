@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.8 - 2026-11-13
+
 ### Added
 
 - `CATALOG.md`, generated from public discovery and verified only with
@@ -18,6 +20,8 @@
 
 ### Fixed
 
+- Keep successful installs and dry runs successful when PATH diagnostics
+  encounter inaccessible or uninspectable entries.
 - Replaced deprecated `derive(...)` syntax with `#derive(...)` so
   `moon check --deny-warn` passes on the current MoonBit toolchain.
 

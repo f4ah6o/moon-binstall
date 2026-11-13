@@ -3294,14 +3294,71 @@ async test "PATH diagnostics resolve symlinks and cwd-relative entries" {
     None => @env.unset_env_var("PATH")
   })
   @env.set_env_var("PATH", "\{early}:\{late}")
-  let hits = path_resolved_candidates("tool")
-  assert_eq(hits.length(), 1)
-  assert_eq(hits[0], early + "/tool")
+  assert_true(path_resolved_candidate("tool") is PathHit(path) && path == early + "/tool")
   // A relative PATH entry resolves against the working directory.
   @env.set_env_var("PATH", ".")
-  @env.set_env_var("PWD", root)
-  let cwd_hits = path_resolved_candidates("nope")
-  assert_eq(cwd_hits.length(), 0)
+  assert_true(path_resolved_candidate("nope") is PathNotFound)
+}
+
+///|
+async test "PATH diagnostics tolerate inaccessible and invalid entries" {
+  let root = @fs.tmpdir(prefix="moon-binstall-path-errors")
+  let locked = root + "/locked"
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  @fs.mkdir(locked)
+  defer @async.protect_from_cancel() <| () => {
+    @fs.chmod(locked, 0o755) catch { _ => () }
+  }
+  let bin = root + "/bin"
+  @fs.mkdir(bin)
+  @fs.write_file(bin + "/tool", "tool\n")
+  @fs.chmod(bin + "/tool", 0o755)
+  let not_dir = root + "/file"
+  @fs.write_file(not_dir, "not a directory")
+  let loop_path = root + "/loop"
+  @fs.symlink(target=loop_path, loop_path)
+  @fs.chmod(locked, 0o000)
+  let saved = @env.get_env_var("PATH")
+  defer (match saved {
+    Some(value) => @env.set_env_var("PATH", value)
+    None => @env.unset_env_var("PATH")
+  })
+  @env.set_env_var("PATH", "\{locked}:\{not_dir}:\{bin}:\{loop_path}")
+  assert_true(path_resolved_candidate("tool") is PathHit(path) && path == bin + "/tool")
+  @env.set_env_var("PATH", "\{locked}:\{not_dir}")
+  assert_true(path_resolved_candidate("tool") is PathNotFound)
+  @env.set_env_var("PATH", "\{loop_path}:\{bin}")
+  assert_true(path_resolved_candidate("tool") is PathUnknown(_))
+}
+
+///|
+async test "PATH diagnostic errors do not fail install skip or dry run" {
+  let root = @fs.tmpdir(prefix="moon-binstall-path-install")
+  defer (@fs.rmdir(root, recursive=true) catch { _ => () })
+  let loop_path = root + "/loop"
+  @fs.symlink(target=loop_path, loop_path)
+  let bin = root + "/bin"
+  let transport = make_github_release_transport(
+    root, "v1.2.3", "1.2.3", "tool-bytes\n",
+  )
+  let saved = @env.get_env_var("PATH")
+  defer (match saved {
+    Some(value) => @env.set_env_var("PATH", value)
+    None => @env.unset_env_var("PATH")
+  })
+  @env.set_env_var("PATH", "\{loop_path}:\{bin}")
+  let dry_run = parse_batch_options([
+    "acme/tool@v1.2.3", "--target", "linux-x86_64", "--bin-dir", bin,
+    "--dry-run",
+  ])
+  install_many_using(dry_run, Fixture(transport))
+  assert_true(!@fs.exists(bin + "/tool"))
+  install_many_using(github_options(bin, "v1.2.3", false), Fixture(transport))
+  let receipt = receipt_path(bin, "tool")
+  let original_receipt = @fs.read_file(receipt).text()
+  install_many_using(github_options(bin, "v1.2.3", false), Fixture(transport))
+  assert_eq(@fs.read_file(bin + "/tool").text(), "tool-bytes\n")
+  assert_eq(@fs.read_file(receipt).text(), original_receipt)
 }
 
 ///|

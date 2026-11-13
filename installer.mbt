@@ -1512,15 +1512,6 @@ async fn path_kind_no_follow(path : String) -> @fs.FileKind? {
 }
 
 ///|
-/// File kind following symlinks — what a shell's exec resolution sees.
-async fn path_kind(path : String) -> @fs.FileKind? {
-  Some(@fs.kind(path)) catch {
-    @os_error.OSError(_) as err if err.is_ENOENT() => None
-    err => raise err
-  }
-}
-
-///|
 async fn check_destination(path : String, force : Bool) -> Unit {
   match path_kind_no_follow(path) {
     Some(Regular) if force => ()
@@ -3191,13 +3182,20 @@ async fn install_many_using(
 }
 
 ///|
+/// Result of the best-effort PATH lookup used only for diagnostics.
+enum PathResolution {
+  PathHit(String)
+  PathNotFound
+  PathUnknown(String)
+}
+
+///|
 /// Where a bare `name` resolves for a shell user, in PATH order. Unlike
 /// the self-update lookup, this mirrors what exec actually does: empty
 /// and relative PATH entries resolve against the current working
 /// directory, symlinks are followed to regular files, and the candidate
 /// must carry an executable bit — no file is ever invoked.
-async fn path_resolved_candidates(name : String) -> Array[String] {
-  let found : Array[String] = []
+async fn path_resolved_candidate(name : String) -> PathResolution {
   let raw = match @env.get_env_var("PATH") {
     Some(value) => value
     None => ""
@@ -3219,12 +3217,20 @@ async fn path_resolved_candidates(name : String) -> Array[String] {
       }
     }
     let candidate = dir + "/" + name
-    match path_kind(candidate) {
-      Some(Regular) => if @fs.can_execute(candidate) { found.push(candidate) }
-      _ => ()
+    let executable = try {
+      @fs.kind(candidate) is Regular && @fs.can_execute(candidate)
+    } catch {
+      @os_error.OSError(_) as err if err.is_ENOENT() || err.is_EACCES() || err.is_ENOTDIR() =>
+        false
+      @os_error.OSError(_) as err =>
+        return PathUnknown("cannot inspect '\{candidate}': \{err}")
+      err => raise err
+    }
+    if executable {
+      return PathHit(candidate)
     }
   }
-  found
+  PathNotFound
 }
 
 ///|
@@ -3244,23 +3250,32 @@ async fn report_path_diagnostics(
     }
     seen.push(name)
     let destination = bin_dir + "/" + name
-    let candidates = path_resolved_candidates(name)
-    if candidates.length() == 0 {
-      eprintln(
-        "moon-binstall: note: '\{name}' is not on PATH (installed at '\{destination}')",
-      )
-      eprintln(
-        "moon-binstall: hint: add '\{bin_dir}' to PATH, then check 'command -v \{name}' or 'type -a \{name}'",
-      )
-    } else if candidates[0] != destination {
-      eprintln(
-        "moon-binstall: note: '\{name}' on PATH resolves to '\{candidates[0]}', which shadows the new install at '\{destination}'",
-      )
-      eprintln(
-        "moon-binstall: hint: check with 'command -v \{name}' or 'type -a \{name}'",
-      )
-    } else {
-      println("PATH resolves '\{name}' to '\{destination}'")
+    match path_resolved_candidate(name) {
+      PathNotFound => {
+        eprintln(
+          "moon-binstall: note: '\{name}' is not on PATH (installed at '\{destination}')",
+        )
+        eprintln(
+          "moon-binstall: hint: add '\{bin_dir}' to PATH, then check 'command -v \{name}' or 'type -a \{name}'",
+        )
+      }
+      PathHit(candidate) if candidate != destination => {
+        eprintln(
+          "moon-binstall: note: '\{name}' on PATH resolves to '\{candidate}', which shadows the new install at '\{destination}'",
+        )
+        eprintln(
+          "moon-binstall: hint: check with 'command -v \{name}' or 'type -a \{name}'",
+        )
+      }
+      PathHit(_) => println("PATH resolves '\{name}' to '\{destination}'")
+      PathUnknown(reason) => {
+        eprintln(
+          "moon-binstall: note: could not determine PATH resolution for '\{name}': \{reason}",
+        )
+        eprintln(
+          "moon-binstall: hint: check with 'command -v \{name}' or 'type -a \{name}'",
+        )
+      }
     }
   }
 }
@@ -3331,7 +3346,7 @@ pub async fn execute(argv : ArrayView[String]) -> Int {
     return 0
   }
   if argv.length() == 1 && argv[0] == "--version" {
-    println("moon-binstall 0.1.7")
+    println("moon-binstall 0.1.8")
     return 0
   }
   let config = parse_batch_options(argv)
