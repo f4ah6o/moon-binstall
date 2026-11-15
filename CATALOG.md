@@ -4,7 +4,7 @@ Automatically discovered MoonBit CLI binaries.
 
 Compatibility is determined by `moon binstall --dry-run`.
 
-Last updated: 2026-11-14 UTC
+Last updated: 2026-11-15 UTC
 
 ## Verified CLIs
 
@@ -24,9 +24,9 @@ Last updated: 2026-11-14 UTC
 
 ## Scan Summary
 
-- Candidates tracked: 413
+- Candidates tracked: 374
 - Verified CLIs: 5
-- Unsupported candidates: 407
+- Unsupported candidates: 368
 - Unknown results: 0
 - Adoption entries: 3
 - Reference mentions: 0
