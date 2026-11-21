@@ -26,7 +26,7 @@
       "since": "2026-11-11"
     }
   },
-  "body_sha256": "7df035406972c6d0449908e803bbbfd4c41175645adaca8e31193ba38981eebf",
+  "body_sha256": "26ad8d76143677383f630bbdde597b1ef2b79e788742efd0100b9ad8925d5cc8",
   "candidates": {
     "aziis98/stellarium": {
       "coordinate": "aziis98/stellarium",
@@ -60,335 +60,6 @@
         }
       }
     },
-    "bikallem/freetype": {
-      "coordinate": "bikallem/freetype",
-      "description": "Pure MoonBit FreeType-compatible font engine",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bikallem/freetype",
-      "repository": "bikallem/freetype",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bikallem/image": {
-      "coordinate": "bikallem/image",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bikallem/image",
-      "repository": "bikallem/image",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bikallem/reactive": {
-      "coordinate": "bikallem/reactive",
-      "description": "A reactive programming library for Moonbit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bikallem/reactive",
-      "repository": "bikallem/reactive",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bikallem/rsignal.mbt": {
-      "coordinate": "bikallem/rsignal.mbt",
-      "description": "rsignal - A reactive web programming library for Moonbit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bikallem/rsignal",
-      "repository": "bikallem/rsignal.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bikallem/webapi": {
-      "coordinate": "bikallem/webapi",
-      "description": "Moonbit browser WebApi - dom, fetch, html, xhr, url, svg, uievents and more",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bikallem/webapi",
-      "repository": "bikallem/webapi",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "binhongcha/moonamqp1": {
-      "coordinate": "binhongcha/MoonAMQP1",
-      "description": "AMQP 1.0 typed wire codec and bounded sans-I/O messaging state machines",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "binhongcha/moonamqp1",
-      "repository": "binhongcha/MoonAMQP1",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "binhongcha/moonscim": {
-      "coordinate": "binhongcha/MoonSCIM",
-      "description": "Portable SCIM 2.0 schema, filter, patch, query, and bulk semantics for MoonBit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "binhongcha/moonscim",
-      "repository": "binhongcha/MoonSCIM",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "binhongcha/moonsuccinct": {
-      "coordinate": "binhongcha/MoonSuccinct",
-      "description": "Static succinct indexes with threshold queries, cursor pages and byte fuzzy search",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "binhongcha/moonsuccinct",
-      "repository": "binhongcha/MoonSuccinct",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "biyuehu/mopress": {
-      "coordinate": "biyuehu/mopress",
-      "description": "A modern documentation and static site generator for the MoonBit ecosystem, inspired by mdBook and Hakyll",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "himeno/mopress",
-      "repository": "biyuehu/mopress",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "black-duck666/moontxnkit": {
-      "coordinate": "black-duck666/MoonTxnKit",
-      "description": "Deterministic atomic state transitions, MVCC transactions and logical recovery for MoonBit.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "black-duck666/moontxnkit",
-      "repository": "black-duck666/MoonTxnKit",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
     "blazingjj/blazingjj": {
       "coordinate": "blazingjj/blazingjj",
       "description": "TUI for Jujutsu/jj",
@@ -417,991 +88,6 @@
         "linux-x86_64": {
           "reason": "no_matching_asset",
           "since": "2026-11-11",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bnyu/channel": {
-      "coordinate": "bnyu/channel",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bnyu2/channel",
-      "repository": "bnyu/channel",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bob/hashbrown-moonbit": {
-      "coordinate": "bob/hashbrown-moonbit",
-      "description": "MoonBit port of Google's SwissTable hash map - a high-performance drop-in replacement for standard hash maps",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bob/hashbrown",
-      "repository": "bob/hashbrown-moonbit",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobojy00/moonbit-factory-graph": {
-      "coordinate": "Bobojy00/moonbit-factory-graph",
-      "description": "Industrial plant topology, multi-layer material/control/energy flow modeling and failure propagation graph engine in MoonBit.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "Bobojy00/moonbit_factory_graph",
-      "repository": "Bobojy00/moonbit-factory-graph",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/ajson": {
-      "coordinate": "bobzhang/ajson",
-      "description": "Asynchronous streaming JSON pull parser built on lexscan",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/ajson",
-      "repository": "bobzhang/ajson",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/asciidoctor.mbt": {
-      "coordinate": "bobzhang/asciidoctor.mbt",
-      "description": "A port of Asciidoctor (AsciiDoc processor) to MoonBit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/asciidoctor",
-      "repository": "bobzhang/asciidoctor.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/atd.mbt": {
-      "coordinate": "bobzhang/atd.mbt",
-      "description": "A MoonBit port of ATD (Adaptable Type Definitions) with a MoonBit code generator",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/atd",
-      "repository": "bobzhang/atd.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/bap.mbt": {
-      "coordinate": "bobzhang/bap.mbt",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/bap",
-      "repository": "bobzhang/bap.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/bob": {
-      "coordinate": "bobzhang/bob",
-      "description": "A generic lexer library for handwritten lexers in MoonBit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bob/lexer",
-      "repository": "bobzhang/bob",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/codex_workflow": {
-      "coordinate": "bobzhang/codex_workflow",
-      "description": "Multi-agent workflow runner for Codex.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/codex_workflow",
-      "repository": "bobzhang/codex_workflow",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/crescent": {
-      "coordinate": "bobzhang/crescent",
-      "description": "Benchmarks for the Crescent web framework.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/crescent-benchmarks",
-      "repository": "bobzhang/crescent",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/datafrog": {
-      "coordinate": "bobzhang/datafrog",
-      "description": "Semi-naive fixed-point relational computation in MoonBit, ported from Datafrog",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/datafrog",
-      "repository": "bobzhang/datafrog",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/dateutil.mbt": {
-      "coordinate": "bobzhang/dateutil.mbt",
-      "description": "A port of python-dateutil to MoonBit: relativedelta, rrule, parser, tz, easter.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/dateutil",
-      "repository": "bobzhang/dateutil.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/differential-dataflow": {
-      "coordinate": "bobzhang/differential-dataflow",
-      "description": "Experimental Differential Dataflow port for MoonBit; upstream runtime compatibility is incomplete",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/differential",
-      "repository": "bobzhang/differential-dataflow",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/difflib.mbt": {
-      "coordinate": "bobzhang/difflib.mbt",
-      "description": "A faithful MoonBit port of Python's difflib: SequenceMatcher, Differ, ndiff, unified/context diffs, HtmlDiff and get_close_matches.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/difflib",
-      "repository": "bobzhang/difflib.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/egg": {
-      "coordinate": "bobzhang/egg",
-      "description": "E-graphs and equality saturation in MoonBit, ported from egg",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/egg",
-      "repository": "bobzhang/egg",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/faker.mbt": {
-      "coordinate": "bobzhang/faker.mbt",
-      "description": "Seedable fake data generation for MoonBit, ported from Faker",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/faker",
-      "repository": "bobzhang/faker.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/games": {
-      "coordinate": "bobzhang/games",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/games",
-      "repository": "bobzhang/games",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/h11.mbt": {
-      "coordinate": "bobzhang/h11.mbt",
-      "description": "A pure, bring-your-own-I/O implementation of HTTP/1.1 (port of python-hyper/h11)",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/h11",
-      "repository": "bobzhang/h11.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/hol": {
-      "coordinate": "bobzhang/hol",
-      "description": "HOL theorem prover in MoonBit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/hol",
-      "repository": "bobzhang/hol",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/hol-light.mbt": {
-      "coordinate": "bobzhang/hol-light.mbt",
-      "description": "A MoonBit port of the HOL Light theorem prover",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/hol_light",
-      "repository": "bobzhang/hol-light.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/holm": {
-      "coordinate": "bobzhang/holm",
-      "description": "Step-by-step MoonBit port of make-a-hol",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/holm",
-      "repository": "bobzhang/holm",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/html_parser": {
-      "coordinate": "bobzhang/html_parser",
-      "description": "MoonBit HTML parser and sanitizer ported from JustHTML.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/html_parser",
-      "repository": "bobzhang/html_parser",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_matching_asset",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/incr.mbt": {
-      "coordinate": "bobzhang/incr.mbt",
-      "description": "Adapton-style demand-driven incremental computation in MoonBit",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/incr",
-      "repository": "bobzhang/incr.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/ini-parser": {
-      "coordinate": "bobzhang/ini-parser",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/ini",
-      "repository": "bobzhang/ini-parser",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/ipaddr": {
-      "coordinate": "bobzhang/ipaddr",
-      "description": "A library for manipulation of IP (IPv4/IPv6) and MAC address representations",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/ipaddr",
-      "repository": "bobzhang/ipaddr",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/issues": {
-      "coordinate": "bobzhang/issues",
-      "description": "SQLite-backed DAG issue tracker with a MoonBit CLI and Rabbit Tea dashboard.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/issues",
-      "repository": "bobzhang/issues",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/jsonkit.mbt": {
-      "coordinate": "bobzhang/jsonkit.mbt",
-      "description": "A faithful MoonBit port of jmespath.py, a query language for JSON.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/jmespath",
-      "repository": "bobzhang/jsonkit.mbt",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/kimicc": {
-      "coordinate": "bobzhang/kimicc",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/kimicc",
-      "repository": "bobzhang/kimicc",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/ldiff": {
-      "coordinate": "bobzhang/ldiff",
-      "description": "Lexer-based diff for MoonBit code: weighted token alignment with HTML rendering",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/ldiff",
-      "repository": "bobzhang/ldiff",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        }
-      }
-    },
-    "bobzhang/mermaid": {
-      "coordinate": "bobzhang/mermaid",
-      "description": "MoonBit port of beautiful-mermaid: render Mermaid diagrams to SVG and ASCII/Unicode text.",
-      "first_seen": "2026-11-20",
-      "kind": "github",
-      "module": "bobzhang/beautiful_mermaid",
-      "repository": "bobzhang/mermaid",
-      "sources": [
-        "mooncakes"
-      ],
-      "targets": {
-        "darwin-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "darwin-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-aarch64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
-          "status": "unsupported"
-        },
-        "linux-x86_64": {
-          "reason": "no_release",
-          "since": "2026-11-20",
           "status": "unsupported"
         }
       }
@@ -1540,7 +226,7 @@
     "bruceskingle/bruce-quiz-party": {
       "coordinate": "bruceskingle/bruce-quiz-party",
       "description": "A quiz party Application",
-      "first_seen": "2026-11-20",
+      "first_seen": "2026-11-21",
       "kind": "github",
       "repository": "bruceskingle/bruce-quiz-party",
       "sources": [
@@ -1549,22 +235,22 @@
       "targets": {
         "darwin-aarch64": {
           "reason": "no_release",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         },
         "darwin-x86_64": {
           "reason": "no_release",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         },
         "linux-aarch64": {
           "reason": "no_release",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         },
         "linux-x86_64": {
           "reason": "no_release",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         }
       }
@@ -11771,7 +10457,7 @@
     "gabmacn/source-sentry": {
       "coordinate": "gabmacn/source-sentry",
       "description": "Tracks documentation and records against the repository sources they describe.",
-      "first_seen": "2026-11-20",
+      "first_seen": "2026-11-21",
       "kind": "github",
       "repository": "gabmacn/source-sentry",
       "sources": [
@@ -11780,22 +10466,22 @@
       "targets": {
         "darwin-aarch64": {
           "reason": "no_matching_asset",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         },
         "darwin-x86_64": {
           "reason": "no_matching_asset",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         },
         "linux-aarch64": {
           "reason": "no_matching_asset",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         },
         "linux-x86_64": {
           "reason": "no_matching_asset",
-          "since": "2026-11-20",
+          "since": "2026-11-21",
           "status": "unsupported"
         }
       }
@@ -12302,6 +10988,39 @@
         "linux-x86_64": {
           "reason": "no_release",
           "since": "2026-11-11",
+          "status": "unsupported"
+        }
+      }
+    },
+    "lucaswang5777/moontdms": {
+      "coordinate": "Lucaswang5777/moontdms",
+      "description": "Portable bounded TDMS 2.0 measurement data interchange",
+      "first_seen": "2026-11-21",
+      "kind": "github",
+      "module": "Lucaswang5777/moontdms",
+      "repository": "Lucaswang5777/moontdms",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_matching_asset",
+          "since": "2026-11-21",
           "status": "unsupported"
         }
       }
@@ -13328,6 +12047,72 @@
         }
       }
     },
+    "lxz123411/1234": {
+      "coordinate": "lxz123411/1234",
+      "description": "A timezone-safe recurrence and scheduling engine for MoonBit",
+      "first_seen": "2026-11-21",
+      "kind": "github",
+      "module": "lxz123411/moonrrule",
+      "repository": "lxz123411/1234",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        }
+      }
+    },
+    "lycvvt/moonbit-music-license": {
+      "coordinate": "lycvvt/moonbit-music-license",
+      "description": "MoonBit Music License & Sampling Lineage Compliance Metadata Tool",
+      "first_seen": "2026-11-21",
+      "kind": "github",
+      "module": "lycvvt/moonbit-music-license",
+      "repository": "lycvvt/moonbit-music-license",
+      "sources": [
+        "mooncakes"
+      ],
+      "targets": {
+        "darwin-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "darwin-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "linux-aarch64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        },
+        "linux-x86_64": {
+          "reason": "no_release",
+          "since": "2026-11-21",
+          "status": "unsupported"
+        }
+      }
+    },
     "mattwilkinsonn/jj-hooks": {
       "coordinate": "mattwilkinsonn/jj-hooks",
       "description": "Use your pre-commit/pre-push hook runner with jj.",
@@ -13742,6 +12527,6 @@
       }
     }
   },
-  "catalog_updated": "2026-11-20",
+  "catalog_updated": "2026-11-21",
   "version": 1
 }
