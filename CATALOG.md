@@ -4,7 +4,7 @@ Automatically discovered MoonBit CLI binaries.
 
 Compatibility is determined by `moon binstall --dry-run`.
 
-Last updated: 2026-11-26 UTC
+Last updated: 2026-11-27 UTC
 
 ## Verified CLIs
 
@@ -14,7 +14,7 @@ Last updated: 2026-11-26 UTC
 | moon-binstall | f4ah6o/moon-binstall | ✓ | ✓ | — | ✓ | `moon binstall f4ah6o/moon-binstall` |
 | moon-release | dijdzv/moon-release | ✓ | — | — | — | `moon binstall dijdzv/moon-release` |
 | moon-wipe | f4ah6o/moon-wipe | ✓ | ✓ | — | ✓ | `moon binstall f4ah6o/moon-wipe` |
-| tracecite | Freakz2z/tracecite | ✓ | — | — | — | `moon binstall Freakz2z/tracecite` |
+| moonpkgconfig | xmyd0915/moonpkgconfig | ✓ | — | — | — | `moon binstall xmyd0915/moonpkgconfig` |
 | turtles | gpui-mbt/turtles.mbt | ✓ | ✓ | — | ✓ | `moon binstall gpui-mbt/turtles.mbt` |
 
 ## Detection
@@ -25,9 +25,9 @@ Last updated: 2026-11-26 UTC
 
 ## Scan Summary
 
-- Candidates tracked: 416
+- Candidates tracked: 418
 - Verified CLIs: 6
-- Unsupported candidates: 409
+- Unsupported candidates: 411
 - Unknown results: 0
 - Adoption entries: 3
 - Reference mentions: 0
